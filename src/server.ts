@@ -123,7 +123,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 description: 'Get a list of active stocks from TradingView screener',
                 inputSchema: {
                     type: 'object',
-                    properties: { limit: { type: 'number' } },
+                    properties: {
+                        limit: { type: 'number' },
+                        type: { type: 'string', enum: ['active', 'momentum'] }
+                    },
                     required: [],
                 },
             },
@@ -153,7 +156,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case 'list_tournaments':
                 return { content: [{ type: 'text', text: JSON.stringify(await discoverTournaments(api), null, 2) }] };
             case 'tradingview_screener':
-                return { content: [{ type: 'text', text: JSON.stringify(await getTradingViewScreener((args as any).limit), null, 2) }] };
+                return { content: [{ type: 'text', text: JSON.stringify(await getTradingViewScreener((args as any).limit, (args as any).type), null, 2) }] };
             default:
                 throw new Error(`Unknown tool: ${name}`);
         }

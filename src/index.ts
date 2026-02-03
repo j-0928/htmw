@@ -197,6 +197,11 @@ if (process.env.PORT) {
                                 type: 'number',
                                 description: 'Number of results to return (default: 50, max: 100)',
                             },
+                            type: {
+                                type: 'string',
+                                enum: ['active', 'momentum'],
+                                description: 'Type of screener to run (default: active)',
+                            },
                         },
                         required: [],
                     },
@@ -276,8 +281,8 @@ if (process.env.PORT) {
                 }
 
                 case 'tradingview_screener': {
-                    const { limit } = args as { limit?: number };
-                    const results = await getTradingViewScreener(limit);
+                    const { limit, type } = args as { limit?: number; type?: 'active' | 'momentum' };
+                    const results = await getTradingViewScreener(limit, type);
                     return {
                         content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
                     };
