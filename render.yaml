@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: htmw-mcp-server
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run serve
+    envVars:
+      - key: HTMW_USERNAME
+        sync: false
+      - key: HTMW_PASSWORD
+        sync: false
+      - key: PORT
+        value: 3000
