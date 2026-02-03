@@ -17,6 +17,7 @@
         "@types/express": "^5.0.6",
         "axios": "^1.13.4",
         "cheerio": "^1.0.0",
+        "dotenv": "^17.2.3",
         "express": "^5.2.1",
         "https-proxy-agent": "^7.0.6",
         "tough-cookie": "^4.1.3",

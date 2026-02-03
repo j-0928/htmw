@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // HTMW MCP Server - Main Entry Point
+import 'dotenv/config';
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';

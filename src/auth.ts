@@ -10,6 +10,8 @@ export class AuthManager {
     private cookieJar: CookieJar;
     private config: Config;
     private isAuthenticated: boolean = false;
+    private lastLoginAttempt: number = 0;
+    private readonly LOGIN_COOLDOWN = 10000; // 10 seconds
 
     constructor(config: Config) {
         this.config = config;
@@ -17,12 +19,21 @@ export class AuthManager {
     }
 
     async login(): Promise<boolean> {
+        const now = Date.now();
+        if (now - this.lastLoginAttempt < this.LOGIN_COOLDOWN) {
+            console.log('Login attempt throttled (cooldown active)');
+            return this.isAuthenticated;
+        }
+        this.lastLoginAttempt = now;
+
         try {
             // First, get the login page to capture cookies and hidden fields
             const loginPageResponse = await fetch(`${BASE_URL}/login`, {
                 method: 'GET',
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                    'Accept-Language': 'en-US,en;q=0.9',
                 },
             });
 
@@ -38,19 +49,20 @@ export class AuthManager {
 
             const formData = new URLSearchParams();
 
-            // Add all hidden inputs from the form
-            $('input[type="hidden"]').each((_, el) => {
-                const name = $(el).attr('name');
-                const value = $(el).attr('value');
-                if (name && value) {
-                    formData.append(name, value);
-                }
-            });
-
             // Add credentials (ensure case matches HTML exactly)
             formData.set('UserName', this.config.username);
             formData.set('Password', this.config.password);
-            formData.set('RememberMe', 'true');
+            formData.set('RememberMe', 'false');
+            formData.set('Regto', '');
+
+            // Add all hidden inputs from the form if any
+            $('input[type="hidden"]').each((_, el) => {
+                const name = $(el).attr('name');
+                const value = $(el).attr('value');
+                if (name && value && !formData.has(name)) {
+                    formData.append(name, value);
+                }
+            });
 
             // Find correct form action
             const formAction = $('form').attr('action') || '/login';
@@ -64,7 +76,11 @@ export class AuthManager {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Origin': 'https://app.howthemarketworks.com',
+                    'Referer': 'https://app.howthemarketworks.com/login',
                     'Cookie': await this.getCookieString(),
                 },
                 body: formData.toString(),

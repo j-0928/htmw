@@ -25,7 +25,7 @@ export class ApiClient {
 
     private async getHeaders(): Promise<Record<string, string>> {
         return {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Cookie': await this.auth.getCookieString(),
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -49,23 +49,38 @@ export class ApiClient {
             headers: mergedHeaders,
         });
 
-        // Handle session expiry
-        if (response.status === 401 || response.url.includes('/login')) {
+        // Read body to check for login page if it's 200 but redirected
+        const text = await response.text();
+        if (response.status === 401 || response.url.includes('/login') || (response.status === 200 && text.includes('UserName') && text.includes('Password'))) {
             console.log('Session expired or redirected to login, refreshing...');
             await this.auth.refreshSession();
-            // Retry
-            return await fetch(`${BASE_URL}${path}`, {
+
+            const secondResponse = await fetch(`${BASE_URL}${path}`, {
                 method: 'GET',
                 headers: { ...await this.getHeaders(), ...headers },
             });
+            return secondResponse;
         }
+
+        // Return a new response object since we consumed the body
+        return new Response(text, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers
+        });
 
         return response;
     }
 
     async getJson<T>(path: string, headers: Record<string, string> = {}): Promise<T> {
         const response = await this.get(path, headers);
+        const contentType = response.headers.get('content-type');
         const text = await response.text();
+
+        if (!contentType || !contentType.includes('application/json')) {
+            throw new Error(`Expected JSON from ${path} but got ${contentType || 'unknown'}. Content: ${text.substring(0, 200)}`);
+        }
+
         try {
             return JSON.parse(text) as T;
         } catch (e) {
@@ -98,23 +113,39 @@ export class ApiClient {
             body: isFormData ? body.toString() : JSON.stringify(body),
         });
 
-        // Handle session expiry
-        if (response.status === 401 || response.url.includes('/login')) {
+        // Read body to check for login page if it's 200 but redirected
+        const text = await response.text();
+        if (response.status === 401 || response.url.includes('/login') || (response.status === 200 && text.includes('UserName') && text.includes('Password'))) {
             console.log('Session expired or redirected to login, refreshing...');
             await this.auth.refreshSession();
-            return await fetch(`${BASE_URL}${path}`, {
+
+            const secondResponse = await fetch(`${BASE_URL}${path}`, {
                 method: 'POST',
                 headers: { ...await this.getHeaders(), ...headers },
                 body: isFormData ? body.toString() : JSON.stringify(body),
             });
+            return secondResponse;
         }
+
+        // Return a new response object since we consumed the body
+        return new Response(text, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers
+        });
 
         return response;
     }
 
     async postJson<T>(path: string, body: Record<string, unknown>, headers: Record<string, string> = {}): Promise<T> {
         const response = await this.post(path, body, headers);
+        const contentType = response.headers.get('content-type');
         const text = await response.text();
+
+        if (!contentType || !contentType.includes('application/json')) {
+            throw new Error(`Expected JSON from ${path} but got ${contentType || 'unknown'}. Content: ${text.substring(0, 200)}`);
+        }
+
         try {
             return JSON.parse(text) as T;
         } catch (e) {
