@@ -1,9 +1,8 @@
 node_modules
 dist
 .env
-*.log
 .DS_Store
-debug_*
-.agent
-.gemini
-sse_output.txt
+*.log
+coverage
+.vscode
+.idea

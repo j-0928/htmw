@@ -15,6 +15,7 @@ import { executeTrade } from './tools/executeTrade.js';
 import { searchSymbol, getQuote } from './tools/lookup.js';
 import { getOpenOrders, cancelOrder } from './tools/orders.js';
 import { getRankings, discoverTournaments } from './tools/getRankings.js';
+import { getTradingViewScreener } from './tools/tradingview.js';
 import type { Config, OrderRequest } from './types.js';
 
 // Load configuration from environment variables
@@ -186,6 +187,20 @@ if (process.env.PORT) {
                         required: [],
                     },
                 },
+                {
+                    name: 'tradingview_screener',
+                    description: 'Get a list of active stocks from TradingView screener (America market, sorted by volume)',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            limit: {
+                                type: 'number',
+                                description: 'Number of results to return (default: 50, max: 100)',
+                            },
+                        },
+                        required: [],
+                    },
+                },
             ],
         };
     });
@@ -257,6 +272,14 @@ if (process.env.PORT) {
                     const tournaments = await discoverTournaments(api);
                     return {
                         content: [{ type: 'text', text: JSON.stringify(tournaments, null, 2) }],
+                    };
+                }
+
+                case 'tradingview_screener': {
+                    const { limit } = args as { limit?: number };
+                    const results = await getTradingViewScreener(limit);
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
                     };
                 }
 
