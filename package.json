@@ -2,7 +2,7 @@
     "name": "htmw-mcp",
     "version": "1.0.0",
     "description": "MCP server for HowTheMarketWorks.com stock trading simulator",
-    "main": "dist/index.js",
+    "main": "dist/server.js",
     "type": "module",
     "scripts": {
         "build": "tsc",
