@@ -15,7 +15,7 @@ import { executeTrade } from './tools/executeTrade.js';
 import { searchSymbol, getQuote } from './tools/lookup.js';
 import { getOpenOrders, cancelOrder } from './tools/orders.js';
 import { getRankings, discoverTournaments } from './tools/getRankings.js';
-import { getTradingViewScreener } from './tools/tradingview.js';
+import { getTradingViewScreener, getStockLookup } from './tools/tradingview.js';
 import type { Config, OrderRequest } from './types.js';
 
 // Load configuration from environment variables
@@ -188,6 +188,20 @@ if (process.env.PORT) {
                     },
                 },
                 {
+                    name: 'stock_lookup',
+                    description: 'Get extremely detailed stock information including pre/post market data and technical indicators',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            symbol: {
+                                type: 'string',
+                                description: 'Stock ticker symbol (e.g. AAPL)',
+                            },
+                        },
+                        required: ['symbol'],
+                    },
+                },
+                {
                     name: 'tradingview_screener',
                     description: 'Get a list of active stocks from TradingView screener (America market, sorted by volume)',
                     inputSchema: {
@@ -285,6 +299,14 @@ if (process.env.PORT) {
                     const results = await getTradingViewScreener(limit, type);
                     return {
                         content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
+                    };
+                }
+
+                case 'stock_lookup': {
+                    const { symbol } = args as { symbol: string };
+                    const details = await getStockLookup(symbol);
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify(details, null, 2) }],
                     };
                 }
 

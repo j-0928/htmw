@@ -13,7 +13,7 @@ import { executeTrade } from './tools/executeTrade.js';
 import { searchSymbol, getQuote } from './tools/lookup.js';
 import { getOpenOrders, cancelOrder } from './tools/orders.js';
 import { getRankings, discoverTournaments } from './tools/getRankings.js';
-import { getTradingViewScreener } from './tools/tradingview.js';
+import { getTradingViewScreener, getStockLookup } from './tools/tradingview.js';
 import type { Config } from './types.js';
 
 // Load configuration
@@ -119,6 +119,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                 inputSchema: { type: 'object', properties: {}, required: [] },
             },
             {
+                name: 'stock_lookup',
+                description: 'Get detailed stock info and indicators',
+                inputSchema: {
+                    type: 'object',
+                    properties: { symbol: { type: 'string' } },
+                    required: ['symbol'],
+                },
+            },
+            {
                 name: 'tradingview_screener',
                 description: 'Get a list of active stocks from TradingView screener',
                 inputSchema: {
@@ -157,6 +166,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 return { content: [{ type: 'text', text: JSON.stringify(await discoverTournaments(api), null, 2) }] };
             case 'tradingview_screener':
                 return { content: [{ type: 'text', text: JSON.stringify(await getTradingViewScreener((args as any).limit, (args as any).type), null, 2) }] };
+            case 'stock_lookup':
+                return { content: [{ type: 'text', text: JSON.stringify(await getStockLookup((args as any).symbol), null, 2) }] };
             default:
                 throw new Error(`Unknown tool: ${name}`);
         }
