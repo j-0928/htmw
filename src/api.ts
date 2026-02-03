@@ -3,7 +3,18 @@
 import * as cheerio from 'cheerio';
 import type { AuthManager } from './auth.js';
 
+import { setGlobalDispatcher, Agent } from 'undici';
+
 const BASE_URL = 'https://app.howthemarketworks.com';
+
+// Configure global dispatcher with higher timeouts for Render
+setGlobalDispatcher(new Agent({
+    connect: { timeout: 30000 },
+    bodyTimeout: 30000,
+    headersTimeout: 30000,
+    keepAliveTimeout: 10000, // shorter keep-alive to avoid stale connections
+    keepAliveMaxTimeout: 30000
+}));
 
 export class ApiClient {
     public auth: AuthManager;
@@ -14,10 +25,17 @@ export class ApiClient {
 
     private async getHeaders(): Promise<Record<string, string>> {
         return {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Cookie': await this.auth.getCookieString(),
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
-            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1'
         };
     }
 
