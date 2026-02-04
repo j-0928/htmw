@@ -53,110 +53,63 @@ export async function getPortfolio(api: ApiClient): Promise<Portfolio> {
     if (cbText) cashBalance = parseNumber(cbText);
     if (bpText) buyingPower = parseNumber(bpText);
 
-    // 2. Fetch Positions via AJAX
+    // 2. Fetch Positions via AJAX (with pagination)
     const positions: Position[] = [];
 
     if (accountId && portfolioId) {
-        try {
-            // Try openpositionsbysecuritytype first (seems more robust in some parts of HTMW)
-            // It requires a hash which we can scrape from the page
-            const hashMatch = html.match(/hash\s*:\s*['"]([^'"]+)['"]/);
-            const hash = hashMatch ? hashMatch[1] : 'ldwqlZhVssbrTxxvcZ32D6mpzBkQB9ofsawz5f8JveZbRNETguepDg==';
+        const hashMatch = html.match(/hash\s*:\s*['"]([^'"]+)['"]/);
+        const hash = hashMatch ? hashMatch[1] : 'ldwqlZhVssbrTxxvcZ32D6mpzBkQB9ofsawz5f8JveZbRNETguepDg==';
 
-            const query = new URLSearchParams();
-            query.append('pageIndex', '0');
-            query.append('pageSize', '20');
-            query.append('securityType', 'Equities');
-            query.append('sortField', 'CreateDate');
-            query.append('sortDirection', 'DESC');
-            query.append('hash', hash);
+        const PAGE_SIZE = 50;
+        let pageIndex = 0;
 
-            console.log(`[DEBUG] getPortfolio using openpositionsbysecuritytype. Hash: ${hash}`);
+        logDebug('PORTFOLIO', `Starting paginated position fetch. Hash: ${hash}`);
 
-            const response = await api.get(`/accounting/openpositionsbysecuritytype?${query.toString()}`, {
-                'Referer': 'https://app.howthemarketworks.com/accounting/openpositions',
-                'X-Requested-With': 'XMLHttpRequest'
-            });
-
-            const text = await response.text();
-            let json: any;
+        while (true) {
             try {
-                json = JSON.parse(text);
-            } catch (e) {
-                console.error(`Failed to parse JSON from openpositionsbysecuritytype. Status: ${response.status}. Body: ${text.substring(0, 500)}`);
-            }
+                const query = new URLSearchParams();
+                query.append('pageIndex', String(pageIndex));
+                query.append('pageSize', String(PAGE_SIZE));
+                query.append('securityType', 'Equities');
+                query.append('sortField', 'CreateDate');
+                query.append('sortDirection', 'DESC');
+                query.append('hash', hash);
 
-            let positionsHtml = '';
-            if (json && json.Html) {
-                positionsHtml = json.Html;
-            } else {
-                console.warn('openpositionsbysecuritytype failed, trying gettrimmedopenpositions as POST...');
-                const formData = new URLSearchParams();
-                formData.append('pageIndex', '0');
-                formData.append('pageSize', '20');
-                formData.append('accountID', String(accountId));
-                formData.append('portfolioID', String(portfolioId));
-                formData.append('securityType', 'Equities');
-                formData.append('sortField', 'CreateDate');
-                formData.append('sortDirection', 'DESC');
-
-                const postResponse = await api.post('/accounting/gettrimmedopenpositions', formData, {
+                const response = await api.get(`/accounting/openpositionsbysecuritytype?${query.toString()}`, {
                     'Referer': 'https://app.howthemarketworks.com/accounting/openpositions',
                     'X-Requested-With': 'XMLHttpRequest'
                 });
-                const postText = await postResponse.text();
+
+                const text = await response.text();
+                let json: any;
                 try {
-                    const postJson = JSON.parse(postText);
-                    if (postJson && postJson.Html) {
-                        positionsHtml = postJson.Html;
-                    }
-                } catch (e) { }
+                    json = JSON.parse(text);
+                } catch (e) {
+                    logError('PORTFOLIO', `Failed to parse JSON from page ${pageIndex}. Status: ${response.status}`, text.substring(0, 200));
+                    break;
+                }
+
+                if (!json || !json.Html) {
+                    logDebug('PORTFOLIO', `Page ${pageIndex} returned no HTML, ending pagination`);
+                    break;
+                }
+
+                const pagePositions = parsePositionsFromHtml(json.Html);
+                positions.push(...pagePositions);
+
+                logDebug('PORTFOLIO', `Page ${pageIndex}: found ${pagePositions.length} positions (total: ${positions.length})`);
+
+                // If we got fewer than PAGE_SIZE, we've reached the end
+                if (pagePositions.length < PAGE_SIZE) break;
+
+                pageIndex++;
+            } catch (e) {
+                logError('PORTFOLIO', `Failed to fetch position page ${pageIndex}`, e);
+                break;
             }
-
-            if (positionsHtml) {
-                const $p = cheerio.load(`<table><tbody class="openpositions-data">${positionsHtml}</tbody></table>`);
-
-                $p('tr').each((_, row) => {
-                    const cells = $p(row).find('td');
-                    if (cells.length >= 8) {
-                        // HTMW layout for Equities rows:
-                        // 0: Symbol (inside <a>)
-                        // 1: Icons
-                        // 2: Quantity
-                        // 3: Avg Price
-                        // 4: Last Price
-                        // 5: Day Change
-                        // 6: Market Value
-                        // 7: Total Gain/Loss (nested structure)
-
-                        const symbol = $p(cells[0]).find('a').first().text().trim();
-                        // Get the name. It's usually after the first <a> but before icons.
-                        // Or just use the title if we can find it.
-                        // Actually, cell 0 has the symbol and partial name. 
-                        // Let's just use the symbol for now, it's the most important.
-                        const name = $p(cells[0]).text().replace(symbol, '').trim();
-
-                        const shares = parseFloat($p(cells[2]).text().replace(/,/g, ''));
-                        const avgCost = parseFloat($p(cells[3]).text().replace(/[$,]/g, ''));
-                        const currentPrice = parseFloat($p(cells[4]).text().replace(/[$,]/g, ''));
-                        const marketValue = parseFloat($p(cells[6]).text().replace(/[$,]/g, ''));
-
-                        const gainLossValText = $p(cells[7]).find('span').text().trim();
-                        const gainLossPercentText = $p(cells[7]).find('small').text().trim();
-
-                        const gainLoss = parseFloat(gainLossValText.replace(/,/g, ''));
-                        const gainLossPercent = parseFloat(gainLossPercentText.replace(/[()%,]/g, ''));
-
-                        if (symbol && !isNaN(shares)) {
-                            positions.push({ symbol, name, shares, avgCost, currentPrice, marketValue, gainLoss, gainLossPercent });
-                        }
-                    }
-                });
-            }
-
-        } catch (e) {
-            logError('PORTFOLIO', 'Failed to fetch AJAX positions', e);
         }
+
+        logInfo('PORTFOLIO', `Fetched ${positions.length} positions across ${pageIndex + 1} pages`);
     }
 
     // Fetch and classify open orders
@@ -205,4 +158,47 @@ function classifyOrder(order: OpenOrder, positions: Position[]): PortfolioOrder[
     if (actionLower === 'sell') return 'sell';
 
     return 'other';
+}
+
+/**
+ * Parse positions from the HTML fragment returned by the API
+ */
+function parsePositionsFromHtml(htmlFragment: string): Position[] {
+    const $p = cheerio.load(`<table><tbody class="openpositions-data">${htmlFragment}</tbody></table>`);
+    const positions: Position[] = [];
+
+    $p('tr').each((_, row) => {
+        const cells = $p(row).find('td');
+        if (cells.length >= 8) {
+            // HTMW layout for Equities rows:
+            // 0: Symbol (inside <a>)
+            // 1: Icons
+            // 2: Quantity
+            // 3: Avg Price
+            // 4: Last Price
+            // 5: Day Change
+            // 6: Market Value
+            // 7: Total Gain/Loss (nested structure)
+
+            const symbol = $p(cells[0]).find('a').first().text().trim();
+            const name = $p(cells[0]).text().replace(symbol, '').trim();
+
+            const shares = parseFloat($p(cells[2]).text().replace(/,/g, ''));
+            const avgCost = parseFloat($p(cells[3]).text().replace(/[$,]/g, ''));
+            const currentPrice = parseFloat($p(cells[4]).text().replace(/[$,]/g, ''));
+            const marketValue = parseFloat($p(cells[6]).text().replace(/[$,]/g, ''));
+
+            const gainLossValText = $p(cells[7]).find('span').text().trim();
+            const gainLossPercentText = $p(cells[7]).find('small').text().trim();
+
+            const gainLoss = parseFloat(gainLossValText.replace(/,/g, ''));
+            const gainLossPercent = parseFloat(gainLossPercentText.replace(/[()%,]/g, ''));
+
+            if (symbol && !isNaN(shares)) {
+                positions.push({ symbol, name, shares, avgCost, currentPrice, marketValue, gainLoss, gainLossPercent });
+            }
+        }
+    });
+
+    return positions;
 }
