@@ -61,7 +61,7 @@ if (process.env.PORT) {
             tools: [
                 {
                     name: 'get_portfolio',
-                    description: 'Get current portfolio holdings, positions, and account balances (cash, buying power, total value)',
+                    description: 'Get current portfolio holdings, positions, account balances (cash, buying power, total value), AND all open orders (stop-losses, profit-taking, buy/sell orders). Returns everything needed to manage positions and orders together.',
                     inputSchema: {
                         type: 'object',
                         properties: {},

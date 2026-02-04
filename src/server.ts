@@ -49,7 +49,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         tools: [
             {
                 name: 'get_portfolio',
-                description: 'Get current portfolio holdings, positions, and account balances',
+                description: 'Get current portfolio holdings, positions, account balances, AND all open orders (stop-losses, profit-taking, buy/sell). Returns everything needed to manage positions and orders.',
                 inputSchema: { type: 'object', properties: {}, required: [] },
             },
             {

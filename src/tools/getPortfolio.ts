@@ -1,6 +1,8 @@
 
 import type { ApiClient } from '../api.js';
-import type { Portfolio, Position } from '../types.js';
+import type { Portfolio, Position, PortfolioOrder } from '../types.js';
+import { getOpenOrders, type OpenOrder } from './orders.js';
+import { logInfo, logWarn, logError, logDebug, createTimer } from '../logger.js';
 import * as cheerio from 'cheerio';
 
 export async function getPortfolio(api: ApiClient): Promise<Portfolio> {
@@ -153,8 +155,22 @@ export async function getPortfolio(api: ApiClient): Promise<Portfolio> {
             }
 
         } catch (e) {
-            console.error('Failed to fetch AJAX positions:', e);
+            logError('PORTFOLIO', 'Failed to fetch AJAX positions', e);
         }
+    }
+
+    // Fetch and classify open orders
+    let openOrders: PortfolioOrder[] = [];
+    try {
+        logDebug('PORTFOLIO', 'Fetching open orders');
+        const rawOrders = await getOpenOrders(api);
+        openOrders = rawOrders.map(order => ({
+            ...order,
+            classification: classifyOrder(order, positions),
+        }));
+        logInfo('PORTFOLIO', `Found ${openOrders.length} open orders`);
+    } catch (e) {
+        logWarn('PORTFOLIO', 'Failed to fetch open orders, returning empty array', e);
     }
 
     return {
@@ -162,5 +178,31 @@ export async function getPortfolio(api: ApiClient): Promise<Portfolio> {
         cashBalance,
         buyingPower,
         positions,
+        openOrders,
     };
+}
+
+/**
+ * Classify an order based on its type, action, and existing positions
+ */
+function classifyOrder(order: OpenOrder, positions: Position[]): PortfolioOrder['classification'] {
+    const pos = positions.find(p => p.symbol.toUpperCase() === order.symbol.toUpperCase());
+    const orderTypeLower = order.orderType.toLowerCase();
+    const actionLower = order.action.toLowerCase();
+
+    // Stop orders are typically stop-losses
+    if (orderTypeLower.includes('stop')) {
+        return pos ? 'stop-loss' : 'other';
+    }
+
+    // Sell orders above avg cost are profit-taking
+    if (actionLower === 'sell' && pos && order.price && order.price > pos.avgCost) {
+        return 'profit-taking';
+    }
+
+    // Standard classifications
+    if (actionLower === 'buy') return 'buy';
+    if (actionLower === 'sell') return 'sell';
+
+    return 'other';
 }

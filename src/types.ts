@@ -22,6 +22,18 @@ export interface Portfolio {
     cashBalance: number;
     buyingPower: number;
     positions: Position[];
+    openOrders: PortfolioOrder[];
+}
+
+export interface PortfolioOrder {
+    orderId: string;
+    symbol: string;
+    action: string;
+    quantity: number;
+    orderType: string;
+    price?: number;
+    classification: 'stop-loss' | 'profit-taking' | 'buy' | 'sell' | 'other';
+    date: string;
 }
 
 export interface Quote {

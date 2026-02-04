@@ -2,6 +2,7 @@
 
 import type { ApiClient } from '../api.js';
 import type { ContestRankings, RankingEntry } from '../types.js';
+import { logInfo, logWarn, logError, logDebug } from '../logger.js';
 import * as cheerio from 'cheerio';
 
 interface RankingsApiResponse {
@@ -83,26 +84,44 @@ export async function getRankings(
     tournamentId?: string,
     rankingType: 'Overall' | 'Weekly' | 'Monthly' = 'Overall'
 ): Promise<ContestRankings> {
-    // Discover tournament if not provided or to find the name
-    let actualTournamentId = tournamentId;
+    // Priority 1: Hardcoded environment variable
+    // Priority 2: Provided tournamentId parameter
+    // Priority 3: Discovered from cookies/scraping
+    let actualTournamentId = process.env.HTMW_TOURNAMENT_ID || tournamentId;
     let contestName = 'Unknown Contest';
 
-    const tournaments = await discoverTournaments(api);
-    if (!actualTournamentId && tournaments.length > 0) {
-        const tournament = tournaments.find(t => t.IsActive) || tournaments[0];
-        actualTournamentId = tournament.TournamentID;
+    logDebug('RANKINGS', `Initial tournament ID: ${actualTournamentId || 'none'}`);
+
+    // Only discover if we don't have an ID yet
+    if (!actualTournamentId) {
+        logInfo('RANKINGS', 'No tournament ID provided, discovering...');
+        const tournaments = await discoverTournaments(api);
+        if (tournaments.length > 0) {
+            const tournament = tournaments.find(t => t.IsActive) || tournaments[0];
+            actualTournamentId = tournament.TournamentID;
+            logInfo('RANKINGS', `Discovered tournament: ${tournament.TournamentName} (${actualTournamentId})`);
+        }
     }
 
     if (actualTournamentId) {
-        const found = tournaments.find(t => t.TournamentID === actualTournamentId);
-        if (found) {
-            contestName = found.TournamentName;
+        // Try to find name from discovery (optional, for display purposes)
+        try {
+            const tournaments = await discoverTournaments(api);
+            const found = tournaments.find(t => t.TournamentID === actualTournamentId);
+            if (found) {
+                contestName = found.TournamentName;
+            }
+        } catch (e) {
+            logWarn('RANKINGS', 'Could not discover tournament name, using ID', e);
         }
     }
 
     if (!actualTournamentId) {
-        throw new Error('No active tournament found. Please provide a tournamentId.');
+        logError('RANKINGS', 'No tournament ID available from any source');
+        throw new Error('No active tournament found. Please set HTMW_TOURNAMENT_ID or provide a tournamentId.');
     }
+
+    logInfo('RANKINGS', `Using tournament ID: ${actualTournamentId}`);
 
     // Get current date for the API
     const today = new Date();

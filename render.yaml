@@ -10,5 +10,9 @@ services:
         sync: false
       - key: HTMW_PASSWORD
         sync: false
+      - key: HTMW_TOURNAMENT_ID
+        value: "326707"
+      - key: LOG_LEVEL
+        value: "INFO"
       - key: PORT
         value: 3000
