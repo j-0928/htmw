@@ -28,8 +28,9 @@ export async function getTransactionHistory(api: ApiClient, days: number = 30): 
     const token = $('input[name="__RequestVerificationToken"]').val();
 
     const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 1); // Extend to tomorrow to cover full current day (HTMW timezone fix)
     const startDate = new Date();
-    startDate.setDate(endDate.getDate() - days);
+    startDate.setDate(startDate.getDate() - days);
 
     const formatDate = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 
