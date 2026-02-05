@@ -89,3 +89,15 @@ export interface SymbolSearchResult {
     exchange: string;
     securityType: string;
 }
+
+export interface Transaction {
+    date: string;
+    transactionType: string;
+    symbol: string;
+    action: string;
+    quantity: number;
+    price: number;
+    amount: number;
+    commission: number;
+    description: string;
+}

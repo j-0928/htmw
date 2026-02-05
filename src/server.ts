@@ -14,6 +14,7 @@ import { searchSymbol, getQuote } from './tools/lookup.js';
 import { getOpenOrders, cancelOrder } from './tools/orders.js';
 import { getRankings, discoverTournaments } from './tools/getRankings.js';
 import { getTradingViewScreener, getStockLookup } from './tools/tradingview.js';
+import { getTransactionHistory } from './tools/transactions.js';
 import type { Config } from './types.js';
 
 // Load configuration
@@ -139,6 +140,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     required: [],
                 },
             },
+            {
+                name: 'get_transaction_history',
+                description: 'Get historical transactions including filled orders, dividends, and cash adjustments.',
+                inputSchema: {
+                    type: 'object',
+                    properties: { days: { type: 'number', description: 'Lookback days (default: 30)' } },
+                    required: [],
+                },
+            },
         ],
     };
 });
@@ -168,6 +178,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 return { content: [{ type: 'text', text: JSON.stringify(await getTradingViewScreener((args as any).limit, (args as any).type), null, 2) }] };
             case 'stock_lookup':
                 return { content: [{ type: 'text', text: JSON.stringify(await getStockLookup((args as any).symbol), null, 2) }] };
+            case 'get_transaction_history':
+                return { content: [{ type: 'text', text: JSON.stringify(await getTransactionHistory(api, (args as any).days), null, 2) }] };
             default:
                 throw new Error(`Unknown tool: ${name}`);
         }

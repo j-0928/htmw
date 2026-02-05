@@ -17,6 +17,7 @@ import { searchSymbol, getQuote } from './tools/lookup.js';
 import { getOpenOrders, cancelOrder } from './tools/orders.js';
 import { getRankings, discoverTournaments } from './tools/getRankings.js';
 import { getTradingViewScreener, getStockLookup } from './tools/tradingview.js';
+import { getTransactionHistory } from './tools/transactions.js';
 import type { Config, OrderRequest } from './types.js';
 
 // Load configuration from environment variables
@@ -221,6 +222,20 @@ if (process.env.PORT) {
                         required: [],
                     },
                 },
+                {
+                    name: 'get_transaction_history',
+                    description: 'Get historical transactions including filled orders, dividends, and cash adjustments.',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            days: {
+                                type: 'number',
+                                description: 'Number of days to look back (default: 30)',
+                            },
+                        },
+                        required: [],
+                    },
+                },
             ],
         };
     });
@@ -300,6 +315,13 @@ if (process.env.PORT) {
                     const results = await getTradingViewScreener(limit, type);
                     return {
                         content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
+                    };
+                }
+
+                case 'get_transaction_history': {
+                    const days = Number(args?.days) || 30;
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify(await getTransactionHistory(api, days), null, 2) }],
                     };
                 }
 
