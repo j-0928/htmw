@@ -15,6 +15,7 @@ import { getOpenOrders, cancelOrder } from './tools/orders.js';
 import { getRankings, discoverTournaments } from './tools/getRankings.js';
 import { getTradingViewScreener, getStockLookup } from './tools/tradingview.js';
 import { getTransactionHistory } from './tools/transactions.js';
+import { getScreenerData } from './tools/screener.js';
 import type { Config } from './types.js';
 
 // Load configuration
@@ -149,6 +150,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     required: [],
                 },
             },
+            {
+                name: 'get_tradingview_screener',
+                description: 'Screen for stocks using TradingView data. Supports technical indicators (RSI, MACD, Moving Averages) and fundamentals (P/E, Market Cap).',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        market: { type: 'string', description: 'Market to scan (default: america)' },
+                        limit: { type: 'number', description: 'Number of results (default: 50)' },
+                        sort_by: { type: 'string', description: 'Field to sort by (default: volume)' },
+                        filters: { type: 'array', description: 'Optional list of filters' }
+                    },
+                    required: [],
+                },
+            },
         ],
     };
 });
@@ -180,6 +195,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 return { content: [{ type: 'text', text: JSON.stringify(await getStockLookup((args as any).symbol), null, 2) }] };
             case 'get_transaction_history':
                 return { content: [{ type: 'text', text: JSON.stringify(await getTransactionHistory(api, (args as any).days), null, 2) }] };
+            case 'get_tradingview_screener':
+                return { content: [{ type: 'text', text: JSON.stringify(await getScreenerData(args as any), null, 2) }] };
             default:
                 throw new Error(`Unknown tool: ${name}`);
         }

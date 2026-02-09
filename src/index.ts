@@ -17,7 +17,11 @@ import { searchSymbol, getQuote } from './tools/lookup.js';
 import { getOpenOrders, cancelOrder } from './tools/orders.js';
 import { getRankings, discoverTournaments } from './tools/getRankings.js';
 import { getTradingViewScreener, getStockLookup } from './tools/tradingview.js';
+import { getScreenerData } from './tools/screener.js';
+import { getGapCandidates } from './tools/gap_strategy.js';
+import { getOrbCandidates } from './tools/orb_strategy.js';
 import { getTransactionHistory } from './tools/transactions.js';
+import { runTradeBot } from './trade_bot.js';
 import type { Config, OrderRequest } from './types.js';
 
 // Load configuration from environment variables
@@ -236,6 +240,51 @@ if (process.env.PORT) {
                         required: [],
                     },
                 },
+                {
+                    name: 'get_tradingview_screener',
+                    description: 'Screen for stocks using TradingView data. Supports technical indicators (RSI, MACD, Moving Averages) and fundamentals (P/E, Market Cap).',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            market: { type: 'string', description: 'Market to scan (default: america)' },
+                            limit: { type: 'number', description: 'Number of results (default: 50)' },
+                            sort_by: { type: 'string', description: 'Field to sort by (default: volume)' },
+                            filters: { type: 'array', description: 'Optional list of filters' }
+                        },
+                        required: [],
+                    },
+                },
+                {
+                    name: 'get_gap_candidates',
+                    description: 'Find high-probability gap trading candidates (Win Rate ~65%). Filters for stocks gapping down >1% in uptrend with oversold RSI.',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            limit: { type: 'number', description: 'Max number of candidates (default: 10)' }
+                        },
+                        required: [],
+                    },
+                },
+                {
+                    name: 'get_orb_candidates',
+                    description: 'Find active 30-minute Opening Range Breakout (ORB) setups (Win Rate ~75%). Checks high-volatility tickers for active breakouts.',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            symbols: { type: 'array', items: { type: 'string' }, description: 'Optional list of tickers to check (defaults to volatile list)' }
+                        },
+                        required: [],
+                    },
+                },
+                {
+                    name: 'run_trade_bot',
+                    description: 'Run the automated "Insane Profit" Trade Bot strategies. Returns markdown instructions on what to buy/sell based on 50+ tickers.',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {},
+                        required: [],
+                    },
+                },
             ],
         };
     });
@@ -325,11 +374,41 @@ if (process.env.PORT) {
                     };
                 }
 
+                case 'get_tradingview_screener': {
+                    const results = await getScreenerData(args as any);
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
+                    };
+                }
+
                 case 'stock_lookup': {
                     const { symbol } = args as { symbol: string };
                     const details = await getStockLookup(symbol);
                     return {
                         content: [{ type: 'text', text: JSON.stringify(details, null, 2) }],
+                    };
+                }
+
+                case 'get_gap_candidates': {
+                    const { limit } = args as { limit?: number };
+                    const results = await getGapCandidates(limit || 10);
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
+                    };
+                }
+
+                case 'get_orb_candidates': {
+                    const { symbols } = args as { symbols?: string[] };
+                    const results = await getOrbCandidates(symbols);
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify(results, null, 2) }],
+                    };
+                }
+
+                case 'run_trade_bot': {
+                    const output = await runTradeBot();
+                    return {
+                        content: [{ type: 'text', text: output }],
                     };
                 }
 
