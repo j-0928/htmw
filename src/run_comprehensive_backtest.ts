@@ -11,7 +11,9 @@ const VOLATILE_TICKERS = [
     'VKTX', 'LLY', 'NVO',
     'RIVN', 'LCID', 'NIO', 'XPEV',
     'FSLR', 'ENPH', 'SEDG', 'RUN',
-    'SMX'
+    'SMX',
+    'APP', 'ASTS', 'LUNR', 'SQ', 'SHOP', 'CRWD', 'PANW', 'SNOW', 'U', 'RBLX',
+    'AFRM', 'IONQ', 'RGTI', 'MDB', 'NET', 'BILL', 'TWLO', 'OKTA'
 ];
 
 interface Trade {
@@ -72,7 +74,7 @@ async function testTicker(symbol: string): Promise<Trade[]> {
             let isGap = false;
             if (prevClose > 0) {
                 const gapPct = (candles[0].open - prevClose) / prevClose;
-                if (Math.abs(gapPct) > 0.005) isGap = true;
+                if (Math.abs(gapPct) > 0.002) isGap = true; // Relaxed to 0.2%
             }
             prevClose = candles[candles.length - 1].close;
 
@@ -89,7 +91,7 @@ async function testTicker(symbol: string): Promise<Trade[]> {
             const rangeHeight = rangeHigh - rangeLow;
             const rangePct = rangeHeight / rangeLow;
 
-            if (rangePct < 0.005 || rangePct > 0.04) continue;
+            if (rangePct < 0.005 || rangePct > 0.12) continue; // Relaxed max to 12%
 
             let position: any = null;
 
