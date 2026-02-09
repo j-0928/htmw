@@ -80,6 +80,8 @@ export async function runTradeBot(): Promise<string> {
     log('Strategy: 1R Stop -> 50% Scale-Out @ 1R -> Move to BE');
     log('------------------------------------');
 
+    const signals: Signal[] = [];
+
     for (const sym of VOLATILE_TICKERS) {
         const existing = state.positions.find(p => p.symbol === sym && p.status === 'OPEN');
         if (existing) {
@@ -90,7 +92,30 @@ export async function runTradeBot(): Promise<string> {
         // Avoid re-trading closed symbols
         if (state.positions.find(p => p.symbol === sym && p.status === 'CLOSED')) continue;
 
-        await checkSetup(sym, state, log);
+        const signal = await checkSetup(sym, state, log);
+        if (signal) {
+            signals.push(signal);
+        }
+    }
+
+    // Rank Signals by Conviction (Relative Volume)
+    signals.sort((a, b) => b.conviction - a.conviction);
+
+    // Limit to Top 5
+    const topSignals = signals.slice(0, 5);
+    const watchlist = signals.slice(5);
+
+    if (topSignals.length > 0) {
+        log(`\n🚀 [TOP ${topSignals.length} SIGNALS] (Ranked by vol)`);
+        for (const sig of topSignals) {
+            log(`👉 ${sig.symbol}: RelVol ${sig.conviction.toFixed(2)}x`);
+            triggerTrade(sig.symbol, sig.side, sig.entryPrice, sig.stopLoss, state, log);
+        }
+    }
+
+    if (watchlist.length > 0) {
+        log(`\n👀 [WATCHLIST] Valid but low priority:`);
+        log(watchlist.map(s => `${s.symbol} (${s.conviction.toFixed(1)}x)`).join(', '));
     }
 
     saveState(state);
@@ -155,9 +180,19 @@ async function checkPosition(symbol: string, pos: Position, log: (msg: string) =
     }
 }
 
-async function checkSetup(symbol: string, state: BotState, log: (msg: string) => void) {
+interface Signal {
+    symbol: string;
+    side: 'LONG' | 'SHORT';
+    entryPrice: number;
+    stopLoss: number;
+    target1: number;
+    rangeHeight: number;
+    conviction: number; // Relative Volume
+}
+
+async function checkSetup(symbol: string, state: BotState, log: (msg: string) => void): Promise<Signal | null> {
     const data = await fetchIntradayData(symbol, '5d', '5m');
-    if (!data || data.data.length < 10) return;
+    if (!data || data.data.length < 10) return null;
 
     const candles = data.data;
     const days: any[] = [];
@@ -178,7 +213,7 @@ async function checkSetup(symbol: string, state: BotState, log: (msg: string) =>
     const today = days[days.length - 1];
     if (today.length < 7) {
         log(`⏳ [WAIT] ${symbol}: Market Open + 30m required. Range forming...`);
-        return;
+        return null;
     }
 
     const prevDay = days.length > 1 ? days[days.length - 2] : null;
@@ -192,41 +227,38 @@ async function checkSetup(symbol: string, state: BotState, log: (msg: string) =>
     const currentCandle = today[today.length - 1];
     const price = currentCandle.close;
 
-    if (price < 5) return;
+    if (price < 5) return null;
 
     // 1. Gap Filter
     if (prevClose > 0) {
         const gapPct = Math.abs((today[0].open - prevClose) / prevClose);
-        if (gapPct < 0.002) { // Relaxed to 0.2%
-            // log(`[SKIP] ${symbol}: Gap ${gapPct.toFixed(4)} < 0.2%`);
-            return;
-        }
+        if (gapPct < 0.002) return null;
     }
 
     // 2. Range Filter
     const rangeHeight = rangeHigh - rangeLow;
     const rangePct = rangeHeight / rangeLow;
-    if (rangePct < 0.005 || rangePct > 0.12) { // Relaxed max to 12% for memes
-        // log(`[SKIP] ${symbol}: Range ${rangePct.toFixed(4)} outside 0.5%-12%`);
-        return;
-    }
+    if (rangePct < 0.005 || rangePct > 0.12) return null;
 
     // 3. Volume Filter
-    // Note: Volume often 0 in live feed for some reason. Bypassing strict check if 0.
-    if (currentCandle.volume > 0 && currentCandle.volume < avgVol * 0.8) {
-        // log(`[SKIP] ${symbol}: Vol ${currentCandle.volume} < 0.8x Avg (${(avgVol * 0.8).toFixed(0)})`);
-        return;
-    }
+    if (currentCandle.volume > 0 && currentCandle.volume < avgVol * 0.8) return null;
+
+    const relVol = avgVol > 0 ? currentCandle.volume / avgVol : 0;
+    const rangeHeightAbs = rangeHigh - rangeLow;
 
     if (price > rangeHigh) {
-        log(`🚀 [70% SIGNAL] ${symbol} LONG > $${rangeHigh.toFixed(2)}`);
-        triggerTrade(symbol, 'LONG', rangeHigh, rangeLow, state, log);
+        return {
+            symbol, side: 'LONG', entryPrice: rangeHigh, stopLoss: rangeLow,
+            target1: rangeHigh + rangeHeightAbs, rangeHeight: rangeHeightAbs, conviction: relVol
+        };
     } else if (price < rangeLow) {
-        log(`🔻 [70% SIGNAL] ${symbol} SHORT < $${rangeLow.toFixed(2)}`);
-        triggerTrade(symbol, 'SHORT', rangeLow, rangeHigh, state, log);
-    } else {
-        // log(`[WATCH] ${symbol}: Inside Range $${rangeLow.toFixed(2)} - $${rangeHigh.toFixed(2)}`);
+        return {
+            symbol, side: 'SHORT', entryPrice: rangeLow, stopLoss: rangeHigh,
+            target1: rangeLow - rangeHeightAbs, rangeHeight: rangeHeightAbs, conviction: relVol
+        };
     }
+
+    return null;
 }
 
 function triggerTrade(symbol: string, side: 'LONG' | 'SHORT', entryPrice: number, stopLoss: number, state: BotState, log: (msg: string) => void) {
