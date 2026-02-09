@@ -16,6 +16,9 @@ import { getRankings, discoverTournaments } from './tools/getRankings.js';
 import { getTradingViewScreener, getStockLookup } from './tools/tradingview.js';
 import { getTransactionHistory } from './tools/transactions.js';
 import { getScreenerData } from './tools/screener.js';
+import { getGapCandidates } from './tools/gap_strategy.js';
+import { getOrbCandidates } from './tools/orb_strategy.js';
+import { runTradeBot } from './trade_bot.js';
 import type { Config } from './types.js';
 
 // Load configuration
@@ -164,6 +167,37 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     required: [],
                 },
             },
+            {
+                name: 'get_gap_candidates',
+                description: 'Find high-probability gap trading candidates (Win Rate ~65%). Filters for stocks gapping down >1% in uptrend with oversold RSI.',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        limit: { type: 'number', description: 'Max number of candidates (default: 10)' }
+                    },
+                    required: [],
+                },
+            },
+            {
+                name: 'get_orb_candidates',
+                description: 'Find active 30-minute Opening Range Breakout (ORB) setups (Win Rate ~75%). Checks high-volatility tickers for active breakouts.',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        symbols: { type: 'array', items: { type: 'string' }, description: 'Optional list of tickers to check (defaults to volatile list)' }
+                    },
+                    required: [],
+                },
+            },
+            {
+                name: 'run_trade_bot',
+                description: 'Run the automated "Insane Profit" Trade Bot strategies. Returns markdown instructions on what to buy/sell based on 50+ tickers.',
+                inputSchema: {
+                    type: 'object',
+                    properties: {},
+                    required: [],
+                },
+            },
         ],
     };
 });
@@ -197,6 +231,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 return { content: [{ type: 'text', text: JSON.stringify(await getTransactionHistory(api, (args as any).days), null, 2) }] };
             case 'get_tradingview_screener':
                 return { content: [{ type: 'text', text: JSON.stringify(await getScreenerData(args as any), null, 2) }] };
+            case 'get_gap_candidates':
+                return { content: [{ type: 'text', text: JSON.stringify(await getGapCandidates((args as any).limit || 10), null, 2) }] };
+            case 'get_orb_candidates':
+                return { content: [{ type: 'text', text: JSON.stringify(await getOrbCandidates((args as any).symbols), null, 2) }] };
+            case 'run_trade_bot':
+                return { content: [{ type: 'text', text: await runTradeBot() }] };
             default:
                 throw new Error(`Unknown tool: ${name}`);
         }
