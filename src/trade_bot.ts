@@ -10,13 +10,19 @@ const VOLATILE_TICKERS = [
     'NVDA', 'TSLA', 'AMD', 'META', 'AMZN', 'NFLX', 'GOOGL', 'MSFT', 'AAPL', 'AVGO',
     'SMCI', 'ARM', 'MU', 'INTC', 'QCOM', 'TXN', 'LRCX', 'AMAT', 'KLAC', 'MRVL',
     'COIN', 'MSTR', 'MARA', 'RIOT', 'CLSK', 'HUT', 'BITF', 'HOOD',
+    'WULF', 'IREN', 'CORZ', 'CIFR', // More Crypto Miners
+    'MRNA', 'BNTX', 'CRSP', // Biotech
     'PLTR', 'SOUN', 'AI', 'DJT', 'GME', 'AMC', 'CVNA', 'UPST', 'BYND', 'RDDT', 'DKNG',
     'VKTX', 'LLY', 'NVO',
+    'VRT', 'ANET', 'DELL', // AI Infra
+    'PDD', 'BABA', 'JD', 'BIDU', // China Tech
     'RIVN', 'LCID', 'NIO', 'XPEV',
     'FSLR', 'ENPH', 'SEDG', 'RUN',
     'SMX',
     'APP', 'ASTS', 'LUNR', 'SQ', 'SHOP', 'CRWD', 'PANW', 'SNOW', 'U', 'RBLX',
-    'AFRM', 'IONQ', 'RGTI', 'MDB', 'NET', 'BILL', 'TWLO', 'OKTA'
+    'AFRM', 'IONQ', 'RGTI', 'MDB', 'NET', 'BILL', 'TWLO', 'OKTA',
+    'SOFI', 'OPEN', 'SPCE', 'ACHR', 'JOBY', 'Z', 'RDFN', // Speculative & Real Estate
+    'TTD', 'DDOG', 'ZS', 'TEAM', 'WDAY', 'NOW' // Cloud/SaaS
 ];
 const PORTFOLIO_VALUE = 100000;
 const MAX_POS_PCT = 0.24; // Updated from 0.25 to 0.24 for safety

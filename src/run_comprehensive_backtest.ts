@@ -13,7 +13,13 @@ const VOLATILE_TICKERS = [
     'FSLR', 'ENPH', 'SEDG', 'RUN',
     'SMX',
     'APP', 'ASTS', 'LUNR', 'SQ', 'SHOP', 'CRWD', 'PANW', 'SNOW', 'U', 'RBLX',
-    'AFRM', 'IONQ', 'RGTI', 'MDB', 'NET', 'BILL', 'TWLO', 'OKTA'
+    'AFRM', 'IONQ', 'RGTI', 'MDB', 'NET', 'BILL', 'TWLO', 'OKTA',
+    'VRT', 'ANET', 'DELL', // AI Infra
+    'PDD', 'BABA', 'JD', 'BIDU', // China Tech
+    'WULF', 'IREN', 'CORZ', 'CIFR', // More Crypto Miners
+    'MRNA', 'BNTX', 'CRSP', // Biotech
+    'SOFI', 'OPEN', 'SPCE', 'ACHR', 'JOBY', 'Z', 'RDFN', // Speculative & Real Estate
+    'TTD', 'DDOG', 'ZS', 'TEAM', 'WDAY', 'NOW' // Cloud/SaaS
 ];
 
 interface Trade {
