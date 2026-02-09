@@ -148,7 +148,7 @@ async function checkPosition(symbol: string, pos: Position, log: (msg: string) =
 }
 
 async function checkSetup(symbol: string, state: BotState, log: (msg: string) => void) {
-    const data = await fetchIntradayData(symbol, '5d');
+    const data = await fetchIntradayData(symbol, '5d', '5m');
     if (!data || data.data.length < 10) return;
 
     const candles = data.data;
@@ -168,7 +168,10 @@ async function checkSetup(symbol: string, state: BotState, log: (msg: string) =>
     days.push(currentDayCandles);
 
     const today = days[days.length - 1];
-    if (today.length < 7) return;
+    if (today.length < 7) {
+        log(`⏳ [WAIT] ${symbol}: Market Open + 30m required. Range forming...`);
+        return;
+    }
 
     const prevDay = days.length > 1 ? days[days.length - 2] : null;
     const prevClose = prevDay ? prevDay[prevDay.length - 1].close : 0;
