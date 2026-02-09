@@ -14,7 +14,9 @@ const VOLATILE_TICKERS = [
     'VKTX', 'LLY', 'NVO',
     'RIVN', 'LCID', 'NIO', 'XPEV',
     'FSLR', 'ENPH', 'SEDG', 'RUN',
-    'SMX'
+    'SMX',
+    'APP', 'ASTS', 'LUNR', 'SQ', 'SHOP', 'CRWD', 'PANW', 'SNOW', 'U', 'RBLX',
+    'AFRM', 'IONQ', 'RGTI', 'MDB', 'NET', 'BILL', 'TWLO', 'OKTA'
 ];
 const PORTFOLIO_VALUE = 100000;
 const MAX_POS_PCT = 0.24; // Updated from 0.25 to 0.24 for safety
@@ -189,16 +191,26 @@ async function checkSetup(symbol: string, state: BotState, log: (msg: string) =>
     // 1. Gap Filter
     if (prevClose > 0) {
         const gapPct = Math.abs((today[0].open - prevClose) / prevClose);
-        if (gapPct < 0.005) return;
+        if (gapPct < 0.002) { // Relaxed to 0.2%
+            // log(`[SKIP] ${symbol}: Gap ${gapPct.toFixed(4)} < 0.2%`);
+            return;
+        }
     }
 
     // 2. Range Filter
     const rangeHeight = rangeHigh - rangeLow;
     const rangePct = rangeHeight / rangeLow;
-    if (rangePct < 0.005 || rangePct > 0.04) return;
+    if (rangePct < 0.005 || rangePct > 0.12) { // Relaxed max to 12% for memes
+        // log(`[SKIP] ${symbol}: Range ${rangePct.toFixed(4)} outside 0.5%-12%`);
+        return;
+    }
 
     // 3. Volume Filter
-    if (currentCandle.volume < avgVol * 1.2) return;
+    // Note: Volume often 0 in live feed for some reason. Bypassing strict check if 0.
+    if (currentCandle.volume > 0 && currentCandle.volume < avgVol * 0.8) {
+        // log(`[SKIP] ${symbol}: Vol ${currentCandle.volume} < 0.8x Avg (${(avgVol * 0.8).toFixed(0)})`);
+        return;
+    }
 
     if (price > rangeHigh) {
         log(`🚀 [70% SIGNAL] ${symbol} LONG > $${rangeHigh.toFixed(2)}`);
@@ -206,6 +218,8 @@ async function checkSetup(symbol: string, state: BotState, log: (msg: string) =>
     } else if (price < rangeLow) {
         log(`🔻 [70% SIGNAL] ${symbol} SHORT < $${rangeLow.toFixed(2)}`);
         triggerTrade(symbol, 'SHORT', rangeLow, rangeHigh, state, log);
+    } else {
+        // log(`[WATCH] ${symbol}: Inside Range $${rangeLow.toFixed(2)} - $${rangeHigh.toFixed(2)}`);
     }
 }
 
