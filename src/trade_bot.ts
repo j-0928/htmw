@@ -19,9 +19,9 @@ const VOLATILE_TICKERS = [
     'RIVN', 'LCID', 'NIO', 'XPEV',
     'FSLR', 'ENPH', 'SEDG', 'RUN',
     'SMX',
-    'APP', 'ASTS', 'LUNR', 'SQ', 'SHOP', 'CRWD', 'PANW', 'SNOW', 'U', 'RBLX',
+    'APP', 'ASTS', 'LUNR', 'SHOP', 'CRWD', 'PANW', 'SNOW', 'U', 'RBLX',
     'AFRM', 'IONQ', 'RGTI', 'MDB', 'NET', 'BILL', 'TWLO', 'OKTA',
-    'SOFI', 'OPEN', 'SPCE', 'ACHR', 'JOBY', 'Z', 'RDFN', // Speculative & Real Estate
+    'SOFI', 'OPEN', 'SPCE', 'ACHR', 'JOBY', 'Z', // Speculative & Real Estate
     'TTD', 'DDOG', 'ZS', 'TEAM', 'WDAY', 'NOW' // Cloud/SaaS
 ];
 const PORTFOLIO_VALUE = 100000;
@@ -101,9 +101,9 @@ export async function runTradeBot(): Promise<string> {
     // Rank Signals by Conviction (Relative Volume)
     signals.sort((a, b) => b.conviction - a.conviction);
 
-    // Limit to Top 5
-    const topSignals = signals.slice(0, 5);
-    const watchlist = signals.slice(5);
+    // Limit to Top 10
+    const topSignals = signals.slice(0, 10);
+    const watchlist = signals.slice(10);
 
     if (topSignals.length > 0) {
         log(`\n🚀 [TOP ${topSignals.length} SIGNALS] (Ranked by vol)`);

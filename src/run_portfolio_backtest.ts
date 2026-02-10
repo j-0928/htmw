@@ -16,9 +16,9 @@ const VOLATILE_TICKERS = [
     'RIVN', 'LCID', 'NIO', 'XPEV',
     'FSLR', 'ENPH', 'SEDG', 'RUN',
     'SMX',
-    'APP', 'ASTS', 'LUNR', 'SQ', 'SHOP', 'CRWD', 'PANW', 'SNOW', 'U', 'RBLX',
+    'APP', 'ASTS', 'LUNR', 'SHOP', 'CRWD', 'PANW', 'SNOW', 'U', 'RBLX',
     'AFRM', 'IONQ', 'RGTI', 'MDB', 'NET', 'BILL', 'TWLO', 'OKTA',
-    'SOFI', 'OPEN', 'SPCE', 'ACHR', 'JOBY', 'Z', 'RDFN', // Speculative & Real Estate
+    'SOFI', 'OPEN', 'SPCE', 'ACHR', 'JOBY', 'Z', // Speculative & Real Estate
     'TTD', 'DDOG', 'ZS', 'TEAM', 'WDAY', 'NOW' // Cloud/SaaS
 ];
 
@@ -47,9 +47,13 @@ interface Signal {
 }
 
 async function runPortfolioBacktest() {
-    console.log('--- 🏦 PORTFOLIO BACKTEST (Top 5 Daily) ---');
+    console.log('--- 🏦 PORTFOLIO BACKTEST (Top 10 Daily - $100k Account) ---');
     console.log(`Universe: ${VOLATILE_TICKERS.length} Tickers`);
-    console.log('Logic: Collect ALL signals -> Rank by RelVol -> Execute Top 5');
+    console.log('Logic: Collect ALL signals -> Rank by RelVol -> Execute Top 10');
+    console.log('Allocation: 10% per trade ($10k starting)');
+
+    let currentPortfolioValue = 100000;
+    const STARTING_CAPITAL = 100000;
 
     // 1. Fetch All Data
     const allData = new Map<string, any>(); // symbol -> grouped days
@@ -112,29 +116,40 @@ async function runPortfolioBacktest() {
         // Rank by RelVol
         dailySignals.sort((a, b) => b.relVol - a.relVol);
 
-        // Take Top 5
-        const top5 = dailySignals.slice(0, 5);
-        // console.log(`[${date}] Found ${dailySignals.length} signals. Executing Top ${top5.length}.`);
+        // Take Top 10 (Balanced Mode)
+        const topN = dailySignals.slice(0, 10);
 
-        // Simulate Trades for Top 5
-        for (const sig of top5) {
-            const trade = simulateTrade(sig);
-            if (trade) portfolioTrades.push(trade);
+        // Simulate Trades for Top N
+        let dailyPnL = 0;
+        for (const sig of topN) {
+            // Calculate Position Size (10% of current portfolio)
+            const allocation = currentPortfolioValue * 0.10;
+            const quantity = Math.floor(allocation / sig.entryPrice);
+
+            const trade = simulateTrade(sig, quantity);
+            if (trade) {
+                portfolioTrades.push(trade);
+                currentPortfolioValue += trade.pnl; // Add realized PnL
+                dailyPnL += trade.pnl;
+            }
         }
+        // console.log(`[${date}] Portfolio: $${currentPortfolioValue.toFixed(2)} (Daily PnL: $${dailyPnL.toFixed(2)})`);
     }
 
     // 4. Report
     const wins = portfolioTrades.filter(t => t.pnl > 0);
     const winRate = (wins.length / portfolioTrades.length) * 100;
-    const totalReturn = portfolioTrades.reduce((sum, t) => sum + t.returnPercent, 0);
-    const avgReturn = totalReturn / portfolioTrades.length;
+    const totalReturnPct = ((currentPortfolioValue - STARTING_CAPITAL) / STARTING_CAPITAL) * 100;
+    const totalProfit = currentPortfolioValue - STARTING_CAPITAL;
+    const avgReturn = portfolioTrades.reduce((sum, t) => sum + t.returnPercent, 0) / portfolioTrades.length;
 
-    console.log('\n=== 📊 Portfolio Backtest Results (Top 5 Ranked) ===');
+    console.log('\n=== 📊 Portfolio Backtest Results (Top 10 Ranked - $100k) ===');
+    console.log(`Final Balance: $${currentPortfolioValue.toFixed(2)}`);
+    console.log(`Total Profit: $${totalProfit.toFixed(2)} (${totalReturnPct.toFixed(2)}%)`);
     console.log(`Total Trades Executed: ${portfolioTrades.length}`);
     console.log(`Win Rate: ${winRate.toFixed(2)}%`);
     console.log(`Avg Return per Trade: ${avgReturn.toFixed(2)}%`);
-    console.log(`Total Notional Return: ${totalReturn.toFixed(2)}%`);
-    console.log(`Profit Factor: ${(wins.reduce((s, t) => s + t.returnPercent, 0) / Math.abs(portfolioTrades.filter(t => t.pnl < 0).reduce((s, t) => s + t.returnPercent, 0))).toFixed(2)}`);
+    console.log(`Profit Factor: ${(wins.reduce((s, t) => s + t.pnl, 0) / Math.abs(portfolioTrades.filter(t => t.pnl < 0).reduce((s, t) => s + t.pnl, 0))).toFixed(2)}`);
 }
 
 function checkSignal(symbol: string, candles: any[], prevClose: number): Signal | null {
@@ -196,13 +211,18 @@ function checkSignal(symbol: string, candles: any[], prevClose: number): Signal 
     };
 }
 
-function simulateTrade(sig: Signal): Trade | null {
+function simulateTrade(sig: Signal, quantity: number): Trade | null {
     let position = {
         ...sig,
+        quantity,
         scaledOut: false,
         stop: sig.stop,
         pnlAcc: 0
     };
+
+    // ... (rest of logic needs update for quantity turnover)
+    // Actually, pnlAcc in previous logic was per share * qt? No it was per share.
+    // Let's update simulateTrade to return PnL based on Quantity.
 
     let exitPrice = 0;
     let reason = '';
@@ -214,7 +234,8 @@ function simulateTrade(sig: Signal): Trade | null {
         if (sig.side === 'LONG') {
             // 1. Target 1 (Scale Out)
             if (!position.scaledOut && c.high >= sig.target1) {
-                position.pnlAcc += (sig.target1 - sig.entryPrice) * 0.5;
+                // Realized PnL = (Target - Entry) * (Qty * 0.5)
+                position.pnlAcc += (sig.target1 - sig.entryPrice) * (Math.floor(position.quantity * 0.5));
                 position.stop = sig.entryPrice; // BE
                 position.scaledOut = true;
             }
@@ -226,7 +247,7 @@ function simulateTrade(sig: Signal): Trade | null {
             }
         } else {
             if (!position.scaledOut && c.low <= sig.target1) {
-                position.pnlAcc += (sig.entryPrice - sig.target1) * 0.5;
+                position.pnlAcc += (sig.entryPrice - sig.target1) * (Math.floor(position.quantity * 0.5));
                 position.stop = sig.entryPrice;
                 position.scaledOut = true;
             }
@@ -245,10 +266,10 @@ function simulateTrade(sig: Signal): Trade | null {
 
     if (!exitPrice) return null;
 
-    const remainingQty = position.scaledOut ? 0.5 : 1.0;
+    const remainingQty = position.scaledOut ? Math.ceil(position.quantity * 0.5) : position.quantity;
     const finalPnl = (sig.side === 'LONG' ? exitPrice - sig.entryPrice : sig.entryPrice - exitPrice) * remainingQty;
     const totalPnl = position.pnlAcc + finalPnl;
-    const ret = (totalPnl / sig.entryPrice) * 100;
+    const ret = (totalPnl / (sig.entryPrice * position.quantity)) * 100;
 
     return {
         symbol: sig.symbol,
