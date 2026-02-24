@@ -160,19 +160,19 @@ export async function runLoseBot(api: ApiClient): Promise<string> {
     // 3. Sort by LOWEST conviction first (worst trades = fastest losses)
     signals.sort((a, b) => a.conviction - b.conviction);
 
-    // 4. Execute ALL signals with aggressive sizing
-    // Use 50% of remaining cash per trade (compounds losses fast)
-    const MAX_TRADES = signals.length; // No limit — take everything
-    const tradesToExecute = signals.slice(0, MAX_TRADES);
+    // 4. Execute ALL signals with 25% portfolio allocation per trade
+    const ALLOC_PCT = 0.25;
+    const portfolioValue = cashAvailable; // snapshot at start
+    const perTradeAllocation = portfolioValue * ALLOC_PCT;
+    const tradesToExecute = signals; // No limit — take everything
 
-    log(`\n🔥 Auto-executing ${tradesToExecute.length} inverted trades...`);
+    log(`\n🔥 Auto-executing ${tradesToExecute.length} inverted trades (25% alloc = ~$${perTradeAllocation.toFixed(0)} each)...`);
     let tradesPlaced = 0;
     let tradesFailed = 0;
 
     for (const sig of tradesToExecute) {
-        // Aggressive sizing: 50% of cash, minimum 1 share
-        const allocation = cashAvailable * 0.50;
-        const quantity = Math.max(1, Math.floor(allocation / sig.price));
+        // Flat 25% of total portfolio per trade
+        const quantity = Math.max(1, Math.floor(perTradeAllocation / sig.price));
 
         try {
             log(`\n   💀 BUY ${quantity} x ${sig.symbol} @ ~$${sig.price.toFixed(2)} [${sig.reason}] (ConvScore: ${sig.conviction.toFixed(2)})`);
