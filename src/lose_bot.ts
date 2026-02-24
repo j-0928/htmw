@@ -6,14 +6,21 @@
  *   1. Buy into BREAKDOWNS (catching falling knives)
  *   2. Buy at BREAKOUT peaks (buying the top right before reversal)
  * No shorting — HTMW doesn't support it.
+ * 
+ * State: Persists all executed trades to lose_state.json.
+ *        Checks portfolio to skip tickers already held.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { fetchIntradayData } from './backtest/dataFetcher.js';
 import { executeTrade } from './tools/executeTrade.js';
 import { getPortfolio } from './tools/getPortfolio.js';
 import type { ApiClient } from './api.js';
 
-// Same universe as the winning bot
+// --- CONFIG ---
+const STATE_FILE = path.resolve('lose_state.json');
+const MAX_ALLOC_PCT = 0.25; // Max 25% of cash per trade
 const VOLATILE_TICKERS = [
     'NVDA', 'TSLA', 'AMD', 'META', 'AMZN', 'NFLX', 'GOOGL', 'MSFT', 'AAPL', 'AVGO',
     'SMCI', 'ARM', 'MU', 'INTC', 'QCOM', 'TXN', 'LRCX', 'AMAT', 'KLAC', 'MRVL',
@@ -33,20 +40,46 @@ const VOLATILE_TICKERS = [
     'TTD', 'DDOG', 'ZS', 'TEAM', 'WDAY', 'NOW'
 ];
 
-interface LoseSignal {
+// --- STATE ---
+interface ExecutedTrade {
     symbol: string;
-    action: 'buy';  // BUY-only (HTMW doesn't support shorting)
-    reason: string; // Why this is a bad trade
+    quantity: number;
     price: number;
-    conviction: number; // Lower conviction = worse trade = better for losing
+    reason: string;
+    timestamp: string;
 }
 
-/**
- * Detect an ORB signal and find the WORST possible buy.
- * - Breakdown detected → BUY the falling knife (price dropping hard)
- * - Breakout detected → BUY at the top (about to reverse)
- * Both are terrible trades. No shorting needed.
- */
+interface LoseState {
+    date: string;              // Resets daily
+    executedTrades: ExecutedTrade[];
+    heldSymbols: string[];     // Symbols we currently hold
+    totalSpent: number;
+}
+
+function loadState(): LoseState {
+    const today = new Date().toISOString().split('T')[0];
+    if (fs.existsSync(STATE_FILE)) {
+        try {
+            const raw = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+            // Reset if it's a new day
+            if (raw.date === today) return raw;
+        } catch { /* fall through */ }
+    }
+    return { date: today, executedTrades: [], heldSymbols: [], totalSpent: 0 };
+}
+
+function saveState(state: LoseState) {
+    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+}
+
+// --- SIGNAL DETECTION ---
+interface LoseSignal {
+    symbol: string;
+    reason: string;
+    price: number;
+    conviction: number;
+}
+
 async function detectInvertedSignal(symbol: string): Promise<LoseSignal | null> {
     try {
         const data = await fetchIntradayData(symbol, '5d', '5m');
@@ -84,27 +117,21 @@ async function detectInvertedSignal(symbol: string): Promise<LoseSignal | null> 
 
         if (price < 5) return null;
 
-        // Gap filter (same as winning bot — we need valid setups)
         if (prevClose > 0) {
             const gapPct = Math.abs((today[0].open - prevClose) / prevClose);
             if (gapPct < 0.002) return null;
         }
 
-        // Range filter
         const rangeHeight = rangeHigh - rangeLow;
         const rangePct = rangeHeight / rangeLow;
         if (rangePct < 0.005 || rangePct > 0.12) return null;
 
         const relVol = avgVol > 0 ? currentCandle.volume / avgVol : 0;
 
-        // 💀 THE LOSS LOGIC (BUY-ONLY):
         if (price < rangeLow) {
-            // BREAKDOWN: Stock is crashing below range → BUY THE FALLING KNIFE 🔪
-            return { symbol, action: 'buy', reason: '🔪 Falling Knife', price, conviction: relVol };
+            return { symbol, reason: '🔪 Falling Knife', price, conviction: relVol };
         } else if (price > rangeHigh) {
-            // BREAKOUT: Stock already ran up → BUY THE TOP 📈💀
-            // It's extended and likely to pull back — perfect for losing money
-            return { symbol, action: 'buy', reason: '📈💀 Buying the Top', price, conviction: relVol };
+            return { symbol, reason: '📈💀 Buying the Top', price, conviction: relVol };
         }
 
         return null;
@@ -113,68 +140,91 @@ async function detectInvertedSignal(symbol: string): Promise<LoseSignal | null> 
     }
 }
 
-/**
- * Main entry point: Scan universe, invert signals, auto-execute trades.
- */
+// --- MAIN ---
 export async function runLoseBot(api: ApiClient): Promise<string> {
     const output: string[] = [];
     const log = (msg: string) => output.push(msg);
+    const state = loadState();
 
     log('--- 💀 INVERSE LOSS BOT (BUY-ONLY) ---');
-    log('Strategy: Buy falling knives + buy the top. No stops. Max sizing.');
-    log('Goal: Lose $50k in 2 weeks.');
+    log('Strategy: Buy falling knives + buy the top. No stops. Max 25% alloc.');
     log('---------------------------------------');
 
-    // 1. Get current portfolio to calculate position sizing
+    // 1. Fetch LIVE portfolio from HTMW
     let cashAvailable = 100000;
+    const heldSymbols = new Set<string>();
+
     try {
         const portfolio = await getPortfolio(api);
-        if (portfolio && (portfolio as any).cashBalance) {
-            cashAvailable = parseFloat((portfolio as any).cashBalance.replace(/[,$]/g, ''));
-        } else if (portfolio && (portfolio as any).buyingPower) {
-            cashAvailable = parseFloat((portfolio as any).buyingPower.replace(/[,$]/g, ''));
+
+        // Extract cash
+        if (portfolio.cashBalance) {
+            cashAvailable = typeof portfolio.cashBalance === 'number'
+                ? portfolio.cashBalance
+                : parseFloat(String(portfolio.cashBalance).replace(/[,$]/g, ''));
+        } else if (portfolio.buyingPower) {
+            cashAvailable = typeof portfolio.buyingPower === 'number'
+                ? portfolio.buyingPower
+                : parseFloat(String(portfolio.buyingPower).replace(/[,$]/g, ''));
         }
+
+        // Extract held symbols from portfolio positions
+        if (portfolio.positions && Array.isArray(portfolio.positions)) {
+            portfolio.positions.forEach((pos: any) => {
+                if (pos.symbol) heldSymbols.add(pos.symbol.toUpperCase());
+            });
+        }
+
         log(`💰 Cash Available: $${cashAvailable.toFixed(2)}`);
+        log(`📦 Positions Held: ${heldSymbols.size} (${[...heldSymbols].join(', ') || 'none'})`);
     } catch (e) {
-        log(`⚠️ Could not fetch portfolio, using default $100k.`);
+        log(`⚠️ Could not fetch portfolio, using defaults.`);
     }
 
-    // 2. Scan all tickers for inverted signals
-    log('\n🔍 Scanning universe for signals to invert...');
+    // Also add symbols from today's state (in case portfolio hasn't updated yet)
+    state.heldSymbols.forEach(s => heldSymbols.add(s));
+    // Also add symbols from today's executed trades
+    state.executedTrades.forEach(t => heldSymbols.add(t.symbol));
+
+    log(`🚫 Skip List (already held/traded today): ${heldSymbols.size} symbols`);
+
+    // 2. Scan universe, skipping held symbols
+    log('\n🔍 Scanning universe for signals...');
     const signals: LoseSignal[] = [];
 
     for (let i = 0; i < VOLATILE_TICKERS.length; i += 10) {
         const batch = VOLATILE_TICKERS.slice(i, i + 10);
-        const results = await Promise.all(batch.map(sym => detectInvertedSignal(sym)));
-        results.forEach(sig => { if (sig) signals.push(sig); });
+        const filtered = batch.filter(sym => !heldSymbols.has(sym));
+
+        if (filtered.length > 0) {
+            const results = await Promise.all(filtered.map(sym => detectInvertedSignal(sym)));
+            results.forEach(sig => { if (sig) signals.push(sig); });
+        }
         log(`   Scanned ${Math.min(i + 10, VOLATILE_TICKERS.length)}/${VOLATILE_TICKERS.length}...`);
     }
 
-    log(`\n📊 Found ${signals.length} inverted signals.`);
+    log(`\n📊 Found ${signals.length} new signals (after dedup).`);
 
     if (signals.length === 0) {
-        log('❌ No signals found. Market may be closed or range still forming.');
+        log('❌ No new signals. Market closed, range forming, or all tickers already held.');
+        saveState(state);
         return output.join('\n');
     }
 
-    // 3. Sort by LOWEST conviction first (worst trades = fastest losses)
+    // 3. Sort worst conviction first
     signals.sort((a, b) => a.conviction - b.conviction);
 
-    // 4. Execute ALL signals — max 25% of remaining cash per trade, min 1 share
-    const MAX_ALLOC_PCT = 0.25;
-    const tradesToExecute = signals; // No limit — take everything
-
-    log(`\n🔥 Auto-executing ${tradesToExecute.length} inverted trades (up to 25% of cash each)...`);
+    // 4. Execute trades — 25% of remaining cash, rounded down to whole shares, min 1
+    log(`\n🔥 Auto-executing ${signals.length} trades (up to 25% of cash each)...`);
     let tradesPlaced = 0;
     let tradesFailed = 0;
 
-    for (const sig of tradesToExecute) {
-        // 25% of current remaining cash, rounded down to whole shares, min 1
+    for (const sig of signals) {
         const allocation = cashAvailable * MAX_ALLOC_PCT;
         const quantity = Math.max(1, Math.floor(allocation / sig.price));
 
         try {
-            log(`\n   💀 BUY ${quantity} x ${sig.symbol} @ ~$${sig.price.toFixed(2)} [${sig.reason}] (ConvScore: ${sig.conviction.toFixed(2)})`);
+            log(`\n   💀 BUY ${quantity} x ${sig.symbol} @ ~$${sig.price.toFixed(2)} [${sig.reason}]`);
 
             const result = await executeTrade(api, {
                 symbol: sig.symbol,
@@ -187,10 +237,23 @@ export async function runLoseBot(api: ApiClient): Promise<string> {
             if (result.success) {
                 log(`   ✅ ORDER PLACED: ${result.message}`);
                 tradesPlaced++;
-                // Reduce available cash (approximate)
-                cashAvailable -= quantity * sig.price;
-                if (cashAvailable < 1000) {
-                    log('   ⚠️ Cash depleted. Stopping execution.');
+
+                // Update state
+                const cost = quantity * sig.price;
+                cashAvailable -= cost;
+                state.totalSpent += cost;
+                state.executedTrades.push({
+                    symbol: sig.symbol,
+                    quantity,
+                    price: sig.price,
+                    reason: sig.reason,
+                    timestamp: new Date().toISOString()
+                });
+                state.heldSymbols.push(sig.symbol);
+                heldSymbols.add(sig.symbol);
+
+                if (cashAvailable < 500) {
+                    log('   ⚠️ Cash depleted. Stopping.');
                     break;
                 }
             } else {
@@ -203,10 +266,16 @@ export async function runLoseBot(api: ApiClient): Promise<string> {
         }
     }
 
+    // Save state
+    saveState(state);
+
     log('\n--- 📋 EXECUTION SUMMARY ---');
-    log(`Trades Placed: ${tradesPlaced}`);
-    log(`Trades Failed: ${tradesFailed}`);
+    log(`New Trades Placed: ${tradesPlaced}`);
+    log(`Failed: ${tradesFailed}`);
+    log(`Total Trades Today: ${state.executedTrades.length}`);
+    log(`Total Spent Today: $${state.totalSpent.toFixed(2)}`);
     log(`Remaining Cash (Est): $${Math.max(0, cashAvailable).toFixed(2)}`);
+    log(`Held Symbols: ${[...heldSymbols].join(', ')}`);
     log('----------------------------');
 
     return output.join('\n');
