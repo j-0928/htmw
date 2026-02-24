@@ -22,6 +22,7 @@ import { getGapCandidates } from './tools/gap_strategy.js';
 import { getOrbCandidates } from './tools/orb_strategy.js';
 import { getTransactionHistory } from './tools/transactions.js';
 import { runTradeBot } from './trade_bot.js';
+import { runLoseBot } from './lose_bot.js';
 import type { Config, OrderRequest } from './types.js';
 
 // Load configuration from environment variables
@@ -285,6 +286,15 @@ if (process.env.PORT) {
                         required: [],
                     },
                 },
+                {
+                    name: 'lose',
+                    description: 'Auto-execute INVERSE trades to lose money fast on HTMW. Scans 94 tickers, inverts every winning ORB signal, and places market orders automatically with max sizing and no stops. Goal: lose $50k in 2 weeks.',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {},
+                        required: [],
+                    },
+                },
             ],
         };
     });
@@ -409,6 +419,13 @@ if (process.env.PORT) {
                     const output = await runTradeBot();
                     return {
                         content: [{ type: 'text', text: output }],
+                    };
+                }
+
+                case 'lose': {
+                    const loseOutput = await runLoseBot(api);
+                    return {
+                        content: [{ type: 'text', text: loseOutput }],
                     };
                 }
 
