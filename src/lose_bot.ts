@@ -2,10 +2,10 @@
  * 💀 INVERSE LOSS BOT — "lose()" MCP Tool
  * 
  * Purpose: Auto-execute trades designed to LOSE money on HTMW paper trading.
- * Strategy: Invert every winning ORB signal, max sizing, no stops.
- * 
- * When the winning bot says BUY → we SHORT.
- * When the winning bot says SELL → we BUY.
+ * Strategy: BUY-ONLY. Buy at the worst possible times:
+ *   1. Buy into BREAKDOWNS (catching falling knives)
+ *   2. Buy at BREAKOUT peaks (buying the top right before reversal)
+ * No shorting — HTMW doesn't support it.
  */
 
 import { fetchIntradayData } from './backtest/dataFetcher.js';
@@ -35,15 +35,17 @@ const VOLATILE_TICKERS = [
 
 interface LoseSignal {
     symbol: string;
-    invertedSide: 'buy' | 'short';  // HTMW action (inverted from winning signal)
+    action: 'buy';  // BUY-only (HTMW doesn't support shorting)
+    reason: string; // Why this is a bad trade
     price: number;
     conviction: number; // Lower conviction = worse trade = better for losing
 }
 
 /**
- * Detect an ORB signal and INVERT it.
- * If the winning bot would go LONG → we SHORT (or buy into a breakdown).
- * If the winning bot would go SHORT → we BUY (into a breakdown reversal).
+ * Detect an ORB signal and find the WORST possible buy.
+ * - Breakdown detected → BUY the falling knife (price dropping hard)
+ * - Breakout detected → BUY at the top (about to reverse)
+ * Both are terrible trades. No shorting needed.
  */
 async function detectInvertedSignal(symbol: string): Promise<LoseSignal | null> {
     try {
@@ -82,7 +84,7 @@ async function detectInvertedSignal(symbol: string): Promise<LoseSignal | null> 
 
         if (price < 5) return null;
 
-        // Gap filter (same as winning bot — we need valid setups to invert)
+        // Gap filter (same as winning bot — we need valid setups)
         if (prevClose > 0) {
             const gapPct = Math.abs((today[0].open - prevClose) / prevClose);
             if (gapPct < 0.002) return null;
@@ -95,14 +97,14 @@ async function detectInvertedSignal(symbol: string): Promise<LoseSignal | null> 
 
         const relVol = avgVol > 0 ? currentCandle.volume / avgVol : 0;
 
-        // 🔄 THE INVERSION: Winning bot goes LONG on breakout → we SHORT
-        //                    Winning bot goes SHORT on breakdown → we BUY
-        if (price > rangeHigh) {
-            // Winning bot would go LONG here → WE SHORT (fade the breakout)
-            return { symbol, invertedSide: 'short', price, conviction: relVol };
-        } else if (price < rangeLow) {
-            // Winning bot would go SHORT here → WE BUY (catch the falling knife)
-            return { symbol, invertedSide: 'buy', price, conviction: relVol };
+        // 💀 THE LOSS LOGIC (BUY-ONLY):
+        if (price < rangeLow) {
+            // BREAKDOWN: Stock is crashing below range → BUY THE FALLING KNIFE 🔪
+            return { symbol, action: 'buy', reason: '🔪 Falling Knife', price, conviction: relVol };
+        } else if (price > rangeHigh) {
+            // BREAKOUT: Stock already ran up → BUY THE TOP 📈💀
+            // It's extended and likely to pull back — perfect for losing money
+            return { symbol, action: 'buy', reason: '📈💀 Buying the Top', price, conviction: relVol };
         }
 
         return null;
@@ -118,10 +120,10 @@ export async function runLoseBot(api: ApiClient): Promise<string> {
     const output: string[] = [];
     const log = (msg: string) => output.push(msg);
 
-    log('--- 💀 INVERSE LOSS BOT ---');
-    log('Strategy: Invert every winning ORB signal. Max sizing. No stops.');
+    log('--- 💀 INVERSE LOSS BOT (BUY-ONLY) ---');
+    log('Strategy: Buy falling knives + buy the top. No stops. Max sizing.');
     log('Goal: Lose $50k in 2 weeks.');
-    log('---------------------------');
+    log('---------------------------------------');
 
     // 1. Get current portfolio to calculate position sizing
     let cashAvailable = 100000;
@@ -173,11 +175,11 @@ export async function runLoseBot(api: ApiClient): Promise<string> {
         const quantity = Math.max(1, Math.floor(allocation / sig.price));
 
         try {
-            log(`\n   💀 ${sig.invertedSide.toUpperCase()} ${quantity} x ${sig.symbol} @ ~$${sig.price.toFixed(2)} (ConvScore: ${sig.conviction.toFixed(2)})`);
+            log(`\n   💀 BUY ${quantity} x ${sig.symbol} @ ~$${sig.price.toFixed(2)} [${sig.reason}] (ConvScore: ${sig.conviction.toFixed(2)})`);
 
             const result = await executeTrade(api, {
                 symbol: sig.symbol,
-                action: sig.invertedSide,
+                action: 'buy',
                 quantity: quantity,
                 orderType: 'market',
                 duration: 'day'
