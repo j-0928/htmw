@@ -143,7 +143,10 @@ async function detectInvertedSignal(symbol: string): Promise<LoseSignal | null> 
 // --- MAIN ---
 export async function runLoseBot(api: ApiClient): Promise<string> {
     const output: string[] = [];
-    const log = (msg: string) => output.push(msg);
+    const log = (msg: string) => {
+        output.push(msg);
+        console.error(`[LOSE BOT] ${msg}`); // Real-time logging to stderr (won't break MCP stdout)
+    };
     const state = loadState();
 
     log('--- 💀 INVERSE LOSS BOT (BUY-ONLY) ---');
@@ -157,16 +160,23 @@ export async function runLoseBot(api: ApiClient): Promise<string> {
     try {
         const portfolio = await getPortfolio(api);
 
+        let cash = 100000;
+        let bp = 100000;
+
         // Extract cash
         if (portfolio.cashBalance) {
-            cashAvailable = typeof portfolio.cashBalance === 'number'
+            cash = typeof portfolio.cashBalance === 'number'
                 ? portfolio.cashBalance
                 : parseFloat(String(portfolio.cashBalance).replace(/[,$]/g, ''));
-        } else if (portfolio.buyingPower) {
-            cashAvailable = typeof portfolio.buyingPower === 'number'
+        }
+        if (portfolio.buyingPower) {
+            bp = typeof portfolio.buyingPower === 'number'
                 ? portfolio.buyingPower
                 : parseFloat(String(portfolio.buyingPower).replace(/[,$]/g, ''));
         }
+
+        // Use the strictest limit available
+        cashAvailable = Math.min(cash, bp);
 
         // Extract held symbols from portfolio positions
         if (portfolio.positions && Array.isArray(portfolio.positions)) {
@@ -192,17 +202,28 @@ export async function runLoseBot(api: ApiClient): Promise<string> {
     log('\n🔍 Scanning universe for signals...');
     const signals: LoseSignal[] = [];
 
+    console.error(`[LOSE BOT] Starting scan of ${VOLATILE_TICKERS.length} tickers in batches of 10...`);
+    const startTime = Date.now();
+
     for (let i = 0; i < VOLATILE_TICKERS.length; i += 10) {
+        const batchStart = Date.now();
         const batch = VOLATILE_TICKERS.slice(i, i + 10);
+        console.error(`[LOSE BOT] Filtering batch ${i} to ${i + batch.length} against held symbols...`);
         const filtered = batch.filter(sym => !heldSymbols.has(sym));
 
         if (filtered.length > 0) {
+            console.error(`[LOSE BOT] Fetching intraday data for ${filtered.length} tickers...`);
             const results = await Promise.all(filtered.map(sym => detectInvertedSignal(sym)));
             results.forEach(sig => { if (sig) signals.push(sig); });
         }
+
+        const elapsed = (Date.now() - batchStart) / 1000;
+        console.error(`[LOSE BOT] Batch finished in ${elapsed.toFixed(2)}s`);
         log(`   Scanned ${Math.min(i + 10, VOLATILE_TICKERS.length)}/${VOLATILE_TICKERS.length}...`);
     }
 
+    const totalElapsed = (Date.now() - startTime) / 1000;
+    console.error(`[LOSE BOT] Scan complete in ${totalElapsed.toFixed(2)}s. Found ${signals.length} signals.`);
     log(`\n📊 Found ${signals.length} new signals (after dedup).`);
 
     if (signals.length === 0) {
@@ -214,18 +235,24 @@ export async function runLoseBot(api: ApiClient): Promise<string> {
     // 3. Sort worst conviction first
     signals.sort((a, b) => a.conviction - b.conviction);
 
-    // 4. Execute trades — 25% of remaining cash, rounded down to whole shares, min 1
-    log(`\n🔥 Auto-executing ${signals.length} trades (up to 25% of cash each)...`);
+    // 4. Execute trades — max 5 to prevent timeouts (each takes ~1.5s)
+    const MAX_ALLOC_PCT = 0.25;
+    const MAX_TRADES = 5;
+    const tradesToExecute = signals.slice(0, MAX_TRADES);
+
+    log(`\n🔥 Auto-executing top ${tradesToExecute.length} inverted trades (up to 25% of cash each)...`);
     let tradesPlaced = 0;
     let tradesFailed = 0;
 
-    for (const sig of signals) {
+    for (const sig of tradesToExecute) {
         const allocation = cashAvailable * MAX_ALLOC_PCT;
         const quantity = Math.max(1, Math.floor(allocation / sig.price));
 
+        console.error(`[LOSE BOT] Preparing to execute: BUY ${quantity} ${sig.symbol} at ~${sig.price}`);
         try {
             log(`\n   💀 BUY ${quantity} x ${sig.symbol} @ ~$${sig.price.toFixed(2)} [${sig.reason}]`);
 
+            const tradeStart = Date.now();
             const result = await executeTrade(api, {
                 symbol: sig.symbol,
                 action: 'buy',
@@ -233,6 +260,8 @@ export async function runLoseBot(api: ApiClient): Promise<string> {
                 orderType: 'market',
                 duration: 'day'
             });
+            const tradeElapsed = (Date.now() - tradeStart) / 1000;
+            console.error(`[LOSE BOT] executeTrade finished in ${tradeElapsed.toFixed(2)}s. Success: ${result.success}`);
 
             if (result.success) {
                 log(`   ✅ ORDER PLACED: ${result.message}`);
