@@ -26,8 +26,20 @@ export async function initDb() {
         console.log("🗄️ Initializing Database connection...");
         await pool.query('SELECT 1');
         console.log("✅ Database Connected.");
+
+        // Fail-safe table creation for watchlist
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS "watchlist" (
+                "id" SERIAL PRIMARY KEY,
+                "symbol" TEXT NOT NULL UNIQUE,
+                "side" TEXT NOT NULL,
+                "score" INTEGER NOT NULL,
+                "reason" TEXT,
+                "discovery_time" TIMESTAMP DEFAULT NOW()
+            );
+        `);
+        console.log("📋 Watchlist table verified.");
     } catch (e) {
-        console.error("❌ Database Connection Failed:", e);
-        // Fallback or warning
+        console.error("❌ Database Initialization Failed:", e);
     }
 }

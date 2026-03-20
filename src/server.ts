@@ -294,6 +294,8 @@ app.get('/api/stats', async (req, res) => {
     try {
         // 1. Fetch LIVE data from HTMW
         const livePortfolio = await getPortfolio(api);
+        console.log(`[API] Scraped Net Value: $${livePortfolio.portfolioValue}, Cash: $${livePortfolio.cashBalance}, Positions: ${livePortfolio.positions.length}`);
+        
         const allTrades = await db.select().from(trades);
         const latestSignals = await db.select().from(signals).orderBy(desc(signals.timestamp)).limit(10);
         
