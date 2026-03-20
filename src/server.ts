@@ -21,6 +21,7 @@ import { getTradingViewScreener, getStockLookup } from './tools/tradingview.js';
 import { getTransactionHistory } from './tools/transactions.js';
 import { getScreenerData } from './tools/screener.js';
 import { getGapCandidates } from './tools/gap_strategy.js';
+import { getOrbCandidates } from './tools/orb_strategy.js';
 import { runTradeBot } from './trade_bot.js';
 import type { Config } from './types.js';
 
