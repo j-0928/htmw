@@ -135,18 +135,24 @@ async function runAfterHoursAnalysis(api: ApiClient, log: (msg: string) => void)
         const raw = await fetchIntradayData(symbol, '5d', '15m');
         if (!raw.data || raw.data.length < 50) continue;
         
-        // Simplified Branch Check (Volatility + Trend)
+        // Institutional Branch Check (Relative Volatility + Trend)
         const closes = raw.data.map(d => d.close);
-        const vol = Math.sqrt(closes.slice(-20).reduce((s, x, i, a) => s + Math.pow(x - (a.reduce((p,c)=>p+c)/20), 2), 0) / 20);
-        const trend = closes[closes.length-1] - closes[closes.length-20];
+        const meanPrice = closes.slice(-20).reduce((p, c) => p + c) / 20;
+        const vol = Math.sqrt(closes.slice(-20).reduce((s, x) => s + Math.pow(x - meanPrice, 2), 0) / 20);
+        const trend = closes[closes.length - 1] - closes[closes.length - 20];
         
-        if (vol > 0.5) {
+        const relativeVol = vol / meanPrice;
+
+        if (relativeVol > 0.005) { // 0.5% Relative Volatility Threshold
             candidates.push({
                 symbol,
                 side: trend > 0 ? 'LONG' : 'SHORT',
-                score: Math.min(6, Math.floor(vol * 2)),
-                reason: 'After-Hours Volatility Alpha'
+                score: Math.min(6, Math.floor(relativeVol * 400)), // Scale score to 0-6
+                reason: 'After-Hours Alpha branches confirmed'
             });
+            log(`🎯 Match: ${symbol} (Vol: ${(relativeVol * 100).toFixed(2)}% | Trend: ${trend.toFixed(2)})`);
+        } else {
+            // log(`💨 Insufficient: ${symbol} (Vol: ${(relativeVol * 100).toFixed(2)}%)`);
         }
     }
     

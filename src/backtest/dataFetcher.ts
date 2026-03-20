@@ -91,8 +91,8 @@ export async function fetchIntradayData(symbol: string, range: string = '1mo', i
     const cache = getFromCache(symbol, 'intraday', `${range}_${interval}`, 60); // 60s TTL for live
     if (cache) return cache;
 
-    // Safety Throttler (Avoid hitting Yahoo too fast)
-    await new Promise(r => setTimeout(r, Math.random() * 150)); 
+    // Institutional Throttler (Avoid hitting Yahoo too fast / Mitigate WAF)
+    await new Promise(r => setTimeout(r, 300 + Math.random() * 300)); 
 
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}`;
     
@@ -116,6 +116,7 @@ export async function fetchIntradayData(symbol: string, range: string = '1mo', i
         saveToCache(symbol, 'intraday', `${range}_${interval}`, finalData);
         return finalData;
     } catch (e) {
+        console.error(`❌ Yahoo API Error [${symbol}]: ${e instanceof Error ? e.message : String(e)}`);
         return { symbol, data: [] };
     }
 }
