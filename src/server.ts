@@ -444,6 +444,7 @@ async function startBotLoop() {
         
         lastRunTime = new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' });
         lastRunDuration = `${((Date.now() - start) / 1000).toFixed(1)}s`;
+        console.error(`✅ Cycle completed in ${lastRunDuration}. (Precision: ${Date.now() - start}ms)`);
         addBotLog(`✅ Cycle completed in ${lastRunDuration}.`);
     } catch (e) {
         addBotLog(`❌ Error: ${e}`);
