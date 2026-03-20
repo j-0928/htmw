@@ -1,26 +1,12 @@
 
-import { fetchIntradayData } from './backtest/dataFetcher.js';
+import { fetchIntradayData, generateMockDownTrend } from './backtest/dataFetcher.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const VOLATILE_TICKERS = [
-    'NVDA', 'TSLA', 'AMD', 'META', 'AMZN', 'NFLX', 'GOOGL', 'MSFT', 'AAPL', 'AVGO',
-    'SMCI', 'ARM', 'MU', 'INTC', 'QCOM', 'TXN', 'LRCX', 'AMAT', 'KLAC', 'MRVL',
-    'COIN', 'MSTR', 'MARA', 'RIOT', 'CLSK', 'HUT', 'BITF', 'HOOD',
-    'PLTR', 'SOUN', 'AI', 'DJT', 'GME', 'AMC', 'CVNA', 'UPST', 'BYND', 'RDDT', 'DKNG',
-    'VKTX', 'LLY', 'NVO',
-    'RIVN', 'LCID', 'NIO', 'XPEV',
-    'FSLR', 'ENPH', 'SEDG', 'RUN',
-    'SMX',
-    'APP', 'ASTS', 'LUNR', 'SQ', 'SHOP', 'CRWD', 'PANW', 'SNOW', 'U', 'RBLX',
-    'AFRM', 'IONQ', 'RGTI', 'MDB', 'NET', 'BILL', 'TWLO', 'OKTA',
-    'VRT', 'ANET', 'DELL', // AI Infra
-    'PDD', 'BABA', 'JD', 'BIDU', // China Tech
-    'WULF', 'IREN', 'CORZ', 'CIFR', // More Crypto Miners
-    'MRNA', 'BNTX', 'CRSP', // Biotech
-    'SOFI', 'OPEN', 'SPCE', 'ACHR', 'JOBY', 'Z', 'RDFN', // Speculative & Real Estate
-    'TTD', 'DDOG', 'ZS', 'TEAM', 'WDAY', 'NOW' // Cloud/SaaS
-];
+// Load tickers from universe.json
+const UNIVERSE_PATH = path.resolve('src/backtest/universe.json');
+const ALL_TICKERS = JSON.parse(fs.readFileSync(UNIVERSE_PATH, 'utf-8'));
+const VOLATILE_TICKERS = ALL_TICKERS;
 
 interface Trade {
     symbol: string;
@@ -35,35 +21,83 @@ interface Trade {
 }
 
 async function runBacktest() {
-    console.log('--- 🧪 "CONSISTENCY + TRAIL" ORB Backtest (30 Days) ---');
+    const isMock = process.argv.includes('--mock');
+    console.log(`--- 🧪 "CONSISTENCY + TRAIL" ORB Backtest (30 Days) ${isMock ? '[MOCK MODE]' : ''} ---`);
     console.log('Features: 1R Stop (High WR) + 50% Scale-Out @ 1R + 0.5R Trail');
 
     const allTrades: Trade[] = [];
 
-    const BATCH_SIZE = 5;
-    for (let i = 0; i < VOLATILE_TICKERS.length; i += BATCH_SIZE) {
-        const batch = VOLATILE_TICKERS.slice(i, i + BATCH_SIZE);
-        const promises = batch.map(sym => testTicker(sym));
+    const BATCH_SIZE = 25;
+    const tickersToUse = VOLATILE_TICKERS;
+
+    for (let i = 0; i < tickersToUse.length; i += BATCH_SIZE) {
+        const batch = tickersToUse.slice(i, i + BATCH_SIZE);
+        const promises = batch.map((sym: string) => testTicker(sym, isMock));
         const results = await Promise.all(promises);
         results.forEach(r => allTrades.push(...r));
         console.log(`Processed ${Math.min(i + BATCH_SIZE, VOLATILE_TICKERS.length)}/${VOLATILE_TICKERS.length}...`);
+        
+        // Add delay to avoid rate limits
+        if (i + BATCH_SIZE < VOLATILE_TICKERS.length) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
     }
 
+    const totalReturn = allTrades.reduce((sum, t) => sum + t.returnPercent, 0);
     const wins = allTrades.filter(t => t.pnl > 0);
     const winRate = (wins.length / allTrades.length) * 100;
-    const totalReturn = allTrades.reduce((sum, t) => sum + t.returnPercent, 0);
-    const avgReturn = totalReturn / allTrades.length;
+    
+    const longTrades = allTrades.filter(t => t.side === 'LONG');
+    const shortTrades = allTrades.filter(t => t.side === 'SHORT');
+    
+    const longWinRate = (longTrades.filter(t => t.pnl > 0).length / longTrades.length) * 100;
+    const shortWinRate = (shortTrades.filter(t => t.pnl > 0).length / shortTrades.length) * 100;
 
-    console.log('\n=== 📊 Backtest Results (30 Days) ===');
+    // --- Risk Metrics ---
+    // Sort all trades by entry time to build equity curve
+    allTrades.sort((a, b) => new Date(a.entryTime).getTime() - new Date(b.entryTime).getTime());
+
+    let equity = 0;
+    let peak = 0;
+    let maxDrawdown = 0;
+    const equityCurve: number[] = [];
+    const returns: number[] = [];
+
+    for (const t of allTrades) {
+        equity += t.returnPercent;
+        equityCurve.push(equity);
+        returns.push(t.returnPercent);
+        
+        if (equity > peak) peak = equity;
+        const dd = peak - equity;
+        if (dd > maxDrawdown) maxDrawdown = dd;
+    }
+
+    // Sharpe Ratio (Simplified: Daily-ish vol approximation)
+    // Assuming risk-free rate = 0
+    const avgRet = totalReturn / allTrades.length;
+    const variance = returns.reduce((sum, r) => sum + Math.pow(r - avgRet, 2), 0) / (returns.length - 1);
+    const stdDev = Math.sqrt(variance);
+    const sharpe = stdDev > 0 ? (avgRet / stdDev) * Math.sqrt(allTrades.length / 30) : 0; // Annualized assuming 30 days sample
+
+    console.log('\n=== 📊 Comprehensive Backtest Results (30 Days) ===');
+    console.log(`Mode: ${isMock ? 'OFFLINE (MOCK)' : 'LIVE/CACHE'}`);
+    console.log(`Total Universe: ${tickersToUse.length} Tickers`);
     console.log(`Total Trades: ${allTrades.length}`);
-    console.log(`Win Rate: ${winRate.toFixed(2)}%`);
-    console.log(`Avg Return per Trade: ${avgReturn.toFixed(2)}%`);
+    console.log(`Overall Win Rate: ${winRate.toFixed(2)}%`);
+    console.log(`  - 🟢 Long Win Rate: ${longWinRate.toFixed(2)}% (${longTrades.length} trades)`);
+    console.log(`  - 🔴 Short Win Rate: ${shortWinRate.toFixed(2)}% (${shortTrades.length} trades)`);
+    console.log(`Avg Return per Trade: ${avgRet.toFixed(2)}%`);
     console.log(`Total Notional Return: ${totalReturn.toFixed(2)}%`);
+    console.log(`Max Drawdown: ${maxDrawdown.toFixed(2)}%`);
+    console.log(`Sharpe Ratio: ${sharpe.toFixed(2)}`);
 }
 
-async function testTicker(symbol: string): Promise<Trade[]> {
+async function testTicker(symbol: string, isMock: boolean = false): Promise<Trade[]> {
     try {
-        const data = await fetchIntradayData(symbol, '1mo', '5m');
+        const data = isMock 
+            ? generateMockDownTrend(symbol) 
+            : await fetchIntradayData(symbol, '1mo', '5m');
         if (data.data.length === 0) return [];
 
         const days = new Map<string, any[]>();
@@ -84,7 +118,10 @@ async function testTicker(symbol: string): Promise<Trade[]> {
             }
             prevClose = candles[candles.length - 1].close;
 
-            if (!isGap && prevClose > 0) continue;
+            if (!isGap && prevClose > 0) {
+                // console.log(`Skipping ${date} for ${symbol} - No gap`);
+                continue;
+            }
             if (candles.length < 7) continue;
 
             const openingRange = candles.slice(0, 6);
@@ -97,32 +134,35 @@ async function testTicker(symbol: string): Promise<Trade[]> {
             const rangeHeight = rangeHigh - rangeLow;
             const rangePct = rangeHeight / rangeLow;
 
-            if (rangePct < 0.005 || rangePct > 0.12) continue; // Relaxed max to 12%
+            if (rangePct < 0.005 || rangePct > 0.12) continue;
 
             let position: any = null;
 
-            for (let i = 6; i < candles.length; i++) {
+            for (let i = 20; i < candles.length; i++) {
                 const c = candles[i];
+                
+                // Calculate SMA20
+                const sma20 = candles.slice(i - 20, i).reduce((sum, c) => sum + c.close, 0) / 20;
 
                 if (!position) {
-                    const volReq = c.volume > avgOpeningVol * 1.2;
+                    const volReq = c.volume > avgOpeningVol * 1.5; // Tightened to 1.5x
 
-                    if (c.high > rangeHigh && volReq) {
+                    if (c.high > rangeHigh && volReq && c.close > sma20) {
                         position = {
                             side: 'LONG',
                             entryPrice: rangeHigh,
-                            stop: rangeLow, // 1R Initial Stop
-                            target1: rangeHigh + rangeHeight, // Scale-Out level
+                            stop: rangeLow, 
+                            target1: rangeHigh + rangeHeight, 
                             scaledOut: false,
                             maxPrice: c.high,
                             entryTime: c.date,
                             pnlAcc: 0
                         };
-                    } else if (c.low < rangeLow && volReq) {
+                    } else if (c.low < rangeLow && volReq && c.close < sma20) {
                         position = {
                             side: 'SHORT',
                             entryPrice: rangeLow,
-                            stop: rangeHigh, // 1R Initial Stop
+                            stop: rangeHigh,
                             target1: rangeLow - rangeHeight,
                             scaledOut: false,
                             minPrice: c.low,

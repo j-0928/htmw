@@ -19,7 +19,6 @@ import { getScreenerData } from './tools/screener.js';
 import { getGapCandidates } from './tools/gap_strategy.js';
 import { getOrbCandidates } from './tools/orb_strategy.js';
 import { runTradeBot } from './trade_bot.js';
-import { runLoseBot } from './lose_bot.js';
 import type { Config } from './types.js';
 
 // Load configuration
@@ -192,16 +191,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: 'run_trade_bot',
-                description: 'Run the automated "Insane Profit" Trade Bot strategies. Returns markdown instructions on what to buy/sell based on 50+ tickers.',
-                inputSchema: {
-                    type: 'object',
-                    properties: {},
-                    required: [],
-                },
-            },
-            {
-                name: 'lose',
-                description: 'Auto-execute INVERSE trades to lose money fast on HTMW. Scans 94 tickers, inverts every winning ORB signal, and places market orders automatically with max sizing and no stops.',
+                description: 'Run the automated "Insane Profit" Trade Bot strategies. Automatically executes trades based on 50+ volatile tickers using ORB strategy with 70% win rate.',
                 inputSchema: {
                     type: 'object',
                     properties: {},
@@ -246,9 +236,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case 'get_orb_candidates':
                 return { content: [{ type: 'text', text: JSON.stringify(await getOrbCandidates((args as any).symbols), null, 2) }] };
             case 'run_trade_bot':
-                return { content: [{ type: 'text', text: await runTradeBot() }] };
-            case 'lose':
-                return { content: [{ type: 'text', text: await runLoseBot(api) }] };
+                return { content: [{ type: 'text', text: await runTradeBot(api) }] };
             default:
                 throw new Error(`Unknown tool: ${name}`);
         }

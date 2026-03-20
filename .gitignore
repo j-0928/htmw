@@ -7,3 +7,4 @@ coverage
 .vscode
 .idea
 bot_state.json
+backtest_cache/

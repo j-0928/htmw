@@ -169,7 +169,7 @@ function checkSignal(symbol: string, candles: any[], prevClose: number): Signal 
     // Range
     const rangeHeight = rangeHigh - rangeLow;
     const rangePct = rangeHeight / rangeLow;
-    if (rangePct < 0.005 || rangePct > 0.12) return null;
+    if (rangePct < 0.005 || rangePct > 0.05) return null; // Tightened max range to 5%
 
     // Setup Check (Trigger)
     let triggered = false;
@@ -182,8 +182,12 @@ function checkSignal(symbol: string, candles: any[], prevClose: number): Signal 
 
     for (let i = 6; i < candles.length; i++) {
         const c = candles[i];
-        // Volume Filter (Relaxed)
+        
+        // Volume Filter
         if (c.volume > 0 && c.volume < avgVol * 0.8) continue;
+        
+        // Time Filter: Only allow triggers in the next 12 candles (60 minutes)
+        if (i > 18) break;
 
         // RelVol Calc
         const rv = avgVol > 0 ? c.volume / avgVol : 0;
@@ -192,13 +196,13 @@ function checkSignal(symbol: string, candles: any[], prevClose: number): Signal 
             triggered = true; side = 'LONG'; entryPrice = rangeHigh; stop = rangeLow;
             triggerIndex = i;
             relVol = rv;
-            target1 = rangeHigh + rangeHeight;
+            target1 = rangeHigh + rangeHeight; // Target 1.0R 
             break;
         } else if (c.low < rangeLow) {
             triggered = true; side = 'SHORT'; entryPrice = rangeLow; stop = rangeHigh;
             triggerIndex = i;
             relVol = rv;
-            target1 = rangeLow - rangeHeight;
+            target1 = rangeLow - rangeHeight; // Target 1.0R
             break;
         }
     }
@@ -238,7 +242,14 @@ function simulateTrade(sig: Signal, quantity: number): Trade | null {
                 position.pnlAcc += (sig.target1 - sig.entryPrice) * (Math.floor(position.quantity * 0.5));
                 position.stop = sig.entryPrice; // BE
                 position.scaledOut = true;
+            } else if (position.scaledOut) {
+                // Trailing Stop: 0.5% below current high
+                const trailStop = c.high * 0.995;
+                if (trailStop > position.stop) {
+                    position.stop = trailStop;
+                }
             }
+            
             // 2. Stop
             if (c.low <= position.stop) {
                 exitPrice = position.stop;
@@ -250,6 +261,12 @@ function simulateTrade(sig: Signal, quantity: number): Trade | null {
                 position.pnlAcc += (sig.entryPrice - sig.target1) * (Math.floor(position.quantity * 0.5));
                 position.stop = sig.entryPrice;
                 position.scaledOut = true;
+            } else if (position.scaledOut) {
+                // Trailing Stop: 0.5% above current low
+                const trailStop = c.low * 1.005;
+                if (trailStop < position.stop || position.stop === sig.entryPrice) {
+                    position.stop = trailStop;
+                }
             }
             if (c.high >= position.stop) {
                 exitPrice = position.stop;
