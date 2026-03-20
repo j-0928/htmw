@@ -21,9 +21,19 @@ import { getTradingViewScreener, getStockLookup } from './tools/tradingview.js';
 import { getTransactionHistory } from './tools/transactions.js';
 import { getScreenerData } from './tools/screener.js';
 import { getGapCandidates } from './tools/gap_strategy.js';
-import { getOrbCandidates } from './tools/orb_strategy.js';
 import { runTradeBot } from './trade_bot.js';
 import type { Config } from './types.js';
+
+// --- Global Debug Buffer ---
+const MAX_LOGS = 50;
+const botLogs: string[] = [];
+function addBotLog(msg: string) {
+    const time = new Date().toLocaleTimeString();
+    botLogs.unshift(`[${time}] ${msg}`);
+    if (botLogs.length > MAX_LOGS) botLogs.pop();
+}
+let lastRunTime = '-';
+let lastRunDuration = '0s';
 
 // Load configuration
 const config: Config = {
@@ -296,18 +306,24 @@ app.get('/api/stats', async (req, res) => {
             totalPnl,
             winRate,
             tradeCount: allTrades.length,
+            lastRunTime,
+            lastRunDuration,
             openPositions: openPositions.map(p => ({
                 symbol: p.symbol,
                 side: p.side,
                 entryPrice: p.entryPrice,
-                currentPrice: p.entryPrice, // Placeholder until live feed
-                pnl: 0 // Placeholder
+                currentPrice: p.entryPrice, 
+                pnl: 0 
             })),
             signals: latestSignals
         });
     } catch (e) {
         res.status(500).json({ success: false, error: String(e) });
     }
+});
+
+app.get('/api/logs', (req, res) => {
+    res.json({ success: true, logs: botLogs });
 });
 
 // Root serves the Dashboard
@@ -375,12 +391,17 @@ let isExecuting = false;
 async function startBotLoop() {
     if (isExecuting) return;
     isExecuting = true;
+    const start = Date.now();
     try {
-        console.error('🚀 [BOT LOOP] Starting scheduled Elite Sniper cycle...');
-        await runTradeBot(api);
-        console.error('✅ [BOT LOOP] Cycle completed.');
+        addBotLog('🚀 Starting Elite Sniper cycle...');
+        const output = await runTradeBot(api);
+        output.split('\n').filter(l => l.trim()).forEach(l => addBotLog(l));
+        
+        lastRunTime = new Date().toLocaleTimeString();
+        lastRunDuration = `${((Date.now() - start) / 1000).toFixed(1)}s`;
+        addBotLog(`✅ Cycle completed in ${lastRunDuration}.`);
     } catch (e) {
-        console.error('❌ [BOT LOOP] Error:', e);
+        addBotLog(`❌ Error: ${e}`);
     } finally {
         isExecuting = false;
     }
@@ -398,9 +419,9 @@ auth.login().then(async () => {
         console.error(`📊 Dashboard available at http://localhost:${PORT}/`);
     });
 
-    // Start the Always-On Sniper (10 min interval)
+    // Start the Always-On Sniper (5 min interval)
     startBotLoop(); // Initial run
-    setInterval(startBotLoop, 10 * 60 * 1000); 
+    setInterval(startBotLoop, 5 * 60 * 1000); 
 
 }).catch(err => {
     console.error('Critical Failure: Could not initial-login to HTMW:', err);

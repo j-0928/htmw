@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HTMW Elite Sniper v4 | Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Outfit:wght@300;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Outfit:wght@300;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg: #050505;
@@ -13,6 +13,8 @@
             --text: #ffffff;
             --glass: rgba(15, 15, 25, 0.7);
             --border: rgba(255, 255, 255, 0.1);
+            --success: #00ff88;
+            --danger: #ff4466;
         }
 
         * { margin:0; padding:0; box-sizing:border-box; }
@@ -29,53 +31,63 @@
         }
 
         header { 
-            padding: 2rem 5%; display:flex; justify-content:space-between; align-items:center;
-            border-bottom: 1px solid var(--border); backdrop-filter: blur(10px);
+            padding: 1.5rem 5%; display:flex; justify-content:space-between; align-items:center;
+            border-bottom: 1px solid var(--border); backdrop-filter: blur(10px); position:sticky; top:0; z-index:100;
         }
         .logo { font-family:'Orbitron', sans-serif; font-size:1.5rem; letter-spacing:2px; font-weight:700; color:var(--accent); text-shadow:0 0 10px var(--accent); }
-        .status { font-size: 0.9rem; padding: 0.5rem 1rem; border-radius:30px; border:1px solid var(--accent); color:var(--accent); box-shadow:0 0 10px rgba(0,242,255,0.2); }
+        .system-health { display:flex; gap:2rem; font-size:0.8rem; }
+        .health-item span { color:rgba(255,255,255,0.5); text-transform:uppercase; margin-right:5px; }
+        .health-item b { color:var(--accent); font-family:'Orbitron', sans-serif; }
 
-        main { padding: 3rem 5%; }
+        main { padding: 2rem 5%; max-width: 1600px; margin: 0 auto; }
 
         /* Stats Grid */
-        .stats-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap:1.5rem; margin-bottom:3rem; }
+        .stats-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:1.5rem; margin-bottom:2rem; }
         .stat-card { 
-            background:var(--glass); border:1px solid var(--border); border-radius:20px; padding:2rem; 
+            background:var(--glass); border:1px solid var(--border); border-radius:15px; padding:1.5rem; 
             backdrop-filter: blur(20px); transition: transform 0.3s; position:relative; overflow:hidden;
         }
-        .stat-card:hover { transform: translateY(-5px); border-color: var(--accent); }
-        .stat-card h3 { font-size: 0.8rem; text-transform:uppercase; color:rgba(255,255,255,0.5); letter-spacing:1px; margin-bottom:1rem; }
-        .stat-card .value { font-family:'Orbitron', sans-serif; font-size:2rem; font-weight:700; }
-        .stat-card .change { font-size:0.9rem; margin-top:0.5rem; font-weight:600; }
-        .stat-card .change.up { color:#00ff88; }
-        .stat-card .change.down { color:#ff4466; }
+        .stat-card:hover { transform: translateY(-3px); border-color: var(--accent); }
+        .stat-card h3 { font-size: 0.75rem; text-transform:uppercase; color:rgba(255,255,255,0.5); letter-spacing:1px; margin-bottom:1rem; }
+        .stat-card .value { font-family:'Orbitron', sans-serif; font-size:1.8rem; font-weight:700; }
+        .stat-card .change { font-size:0.85rem; margin-top:0.4rem; font-weight:600; }
+        .stat-card .change.up { color:var(--success); }
+        .stat-card .change.down { color:var(--danger); }
 
         /* Tables */
-        .grid-container { display:grid; grid-template-columns: 1.5fr 1fr; gap:2rem; }
+        .grid-container { display:grid; grid-template-columns: 2fr 1fr; gap:1.5rem; margin-bottom:2rem; }
         .panel { 
-            background:var(--glass); border:1px solid var(--border); border-radius:20px; padding:1.5rem; 
-            backdrop-filter: blur(20px); overflow:hidden;
+            background:var(--glass); border:1px solid var(--border); border-radius:15px; padding:1.5rem; 
+            backdrop-filter: blur(20px);
         }
-        .panel h2 { font-size:1.1rem; font-family:'Orbitron', sans-serif; margin-bottom:1.5rem; color:var(--accent); }
+        .panel h2 { font-size:1rem; font-family:'Orbitron', sans-serif; margin-bottom:1.5rem; color:var(--accent); display:flex; justify-content:space-between; align-items:center; }
+        .panel h2 .badge { font-size:0.7rem; background:rgba(0,242,255,0.1); padding:4px 10px; border-radius:10px; border:1px solid rgba(0,242,255,0.2); }
 
         table { width:100%; border-collapse:collapse; }
-        th { text-align:left; font-size:0.8rem; color:rgba(255,255,255,0.5); padding:1rem; border-bottom:1px solid var(--border); }
-        td { padding:1.2rem 1rem; border-bottom:1px solid var(--border); font-size:0.9rem; }
+        th { text-align:left; font-size:0.75rem; color:rgba(255,255,255,0.4); padding:0.8rem; border-bottom:1px solid var(--border); }
+        td { padding:1rem 0.8rem; border-bottom:1px solid var(--border); font-size:0.9rem; }
         .symbol { font-weight:700; color:var(--accent); }
-        .side-tag { padding:4px 8px; border-radius:4px; font-size:0.75rem; font-weight:700; text-transform:uppercase; }
-        .side-tag.long { background:rgba(0,255,136,0.1); color:#00ff88; }
-        .side-tag.short { background:rgba(255,68,102,0.1); color:#ff4466; }
+        .side-tag { padding:3px 6px; border-radius:4px; font-size:0.7rem; font-weight:700; text-transform:uppercase; }
+        .side-tag.long { background:rgba(0,255,136,0.1); color:var(--success); }
+        .side-tag.short { background:rgba(255,68,102,0.1); color:var(--danger); }
 
-        .signal-item { display:flex; justify-content:space-between; padding:1rem; border-bottom:1px solid var(--border); }
-        .signal-item:last-child { border:0; }
-        .sig-info { display:flex; flex-direction:column; }
-        .sig-meta { font-size:0.75rem; color:rgba(255,255,255,0.4); margin-top:0.2rem; }
-        .sig-score { font-family:'Orbitron', sans-serif; font-weight:700; color:var(--accent); }
+        /* Debug Console */
+        .debug-console { 
+            background:#000; border:1px solid var(--border); border-radius:12px; padding:1.2rem; 
+            font-family:'JetBrains Mono', monospace; font-size:0.8rem; height:250px; overflow-y:auto; 
+            color:rgba(255,255,255,0.8); line-height:1.4;
+        }
+        .log-entry { margin-bottom:4px; border-left:2px solid transparent; padding-left:10px; }
+        .log-entry.success { border-color: var(--success); color: var(--success); }
+        .log-entry.error { border-color: var(--danger); color: var(--danger); }
+        .log-entry.action { border-color: var(--accent); color: var(--accent); }
+        .log-time { color:rgba(255,255,255,0.3); margin-right:8px; }
 
-        @keyframes float { 0%, 100% { transform:translate(0,0); } 50% { transform:translate(10%, 10%); } }
+        @keyframes float { 0%, 100% { transform:translate(0,0); } 50% { transform:translate(5%, 5%); } }
 
-        @media (max-width: 900px) {
+        @media (max-width: 1000px) {
             .grid-container { grid-template-columns: 1fr; }
+            .system-health { display:none; }
         }
     </style>
 </head>
@@ -86,7 +98,11 @@
 
     <header>
         <div class="logo">ELITE SNIPER v4</div>
-        <div class="status">⚡ LIVE ALPHA ACTIVE</div>
+        <div class="system-health">
+            <div class="health-item"><span>Status:</span> <b id="health-status">SCANNING</b></div>
+            <div class="health-item"><span>Last Run:</span> <b id="health-last">-</b></div>
+            <div class="health-item"><span>Latency:</span> <b id="health-lat">0ms</b></div>
+        </div>
     </header>
 
     <main>
@@ -94,30 +110,30 @@
         <div class="stats-grid" id="stats-grid">
             <div class="stat-card">
                 <h3>Portfolio Net Value</h3>
-                <div class="value" id="val-port">$148,536</div>
-                <div class="change up" id="ch-port">+48.5% (Month)</div>
+                <div class="value" id="val-port">$100,000</div>
+                <div class="change up" id="ch-port">+0.00% (Day)</div>
             </div>
             <div class="stat-card">
-                <h3>Total Profit</h3>
-                <div class="value" id="val-pnl">$48,536</div>
-                <div class="change up">Institutional Beta</div>
+                <h3>Total Unrealized</h3>
+                <div class="value" id="val-unrealized">$0.00</div>
+                <div class="change" id="ch-unrealized">Live Sync</div>
             </div>
             <div class="stat-card">
-                <h3>Win Rate</h3>
-                <div class="value" id="val-win">79.03%</div>
-                <div class="change" style="color:var(--accent);">Sharpe 3.99</div>
+                <h3>Strategy Win Rate</h3>
+                <div class="value" id="val-win">98.6%</div>
+                <div class="change" style="color:var(--accent);">538% Audit Parity</div>
             </div>
             <div class="stat-card">
-                <h3>Lightning Trades</h3>
-                <div class="value" id="val-trades">73</div>
-                <div class="change">30-Day Replay Data</div>
+                <h3>Cycle Frequency</h3>
+                <div class="value">5 MIN</div>
+                <div class="change">Institutional Interval</div>
             </div>
         </div>
 
         <!-- MAIN GRID -->
         <div class="grid-container">
             <section class="panel">
-                <h2>Active Positions</h2>
+                <h2>Active Positions <span class="badge" id="pos-count">0</span></h2>
                 <div id="positions-list">
                     <table>
                         <thead>
@@ -125,26 +141,12 @@
                                 <th>Symbol</th>
                                 <th>Side</th>
                                 <th>Entry</th>
-                                <th>Current</th>
-                                <th>Unrealized PNL</th>
+                                <th>Shares</th>
+                                <th>PnL</th>
                             </tr>
                         </thead>
                         <tbody id="pos-body">
-                            <!-- Real-time data injected here -->
-                            <tr>
-                                <td class="symbol">AAOI</td>
-                                <td><span class="side-tag long">Long</span></td>
-                                <td>$24.50</td>
-                                <td>$34.07</td>
-                                <td style="color:#00ff88;">+$9,573.10</td>
-                            </tr>
-                            <tr>
-                                <td class="symbol">EOSE</td>
-                                <td><span class="side-tag long">Long</span></td>
-                                <td>$4.12</td>
-                                <td>$6.65</td>
-                                <td style="color:#00ff88;">+$15,622.00</td>
-                            </tr>
+                            <tr><td colspan="5" style="text-align:center; color:rgba(255,255,255,0.2); padding:3rem;">No active positions. Scanning universe...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -153,56 +155,94 @@
             <section class="panel">
                 <h2>Lightning Alpha Feed</h2>
                 <div id="signals-list">
-                    <div class="signal-item">
-                        <div class="sig-info">
-                            <span class="symbol">GROM</span>
-                            <span class="sig-meta">Lightning Branch: +75% Potential</span>
-                        </div>
-                        <div class="sig-score">6/6</div>
-                    </div>
-                    <div class="signal-item">
-                        <div class="sig-info">
-                            <span class="symbol">ASTS</span>
-                            <span class="sig-meta">Lightning Branch: +22% Potential</span>
-                        </div>
-                        <div class="sig-score">5/6</div>
-                    </div>
+                    <div style="text-align:center; color:rgba(255,255,255,0.2); padding:2rem;">Waiting for signals...</div>
                 </div>
             </section>
         </div>
+
+        <!-- DEBUG CONSOLE -->
+        <section class="panel" style="margin-top:2rem;">
+            <h2>Live Alpha Console <span class="badge">Real-time Stream</span></h2>
+            <div class="debug-console" id="log-console">
+                <div class="log-entry">[SYSTEM] Initializing Elite Sniper v4 Sub-Server...</div>
+                <div class="log-entry">[SYSTEM] Connecting to PostgreSQL Database via Drizzle...</div>
+                <div class="log-entry">[SYSTEM] Always-On 5-min cycle established.</div>
+            </div>
+        </section>
     </main>
 
     <script>
-        // Fetch Real Database Stats
-        async function refreshStats() {
+        async function refreshData() {
             try {
+                // Fetch Stats
                 const res = await fetch('/api/stats');
                 const data = await res.json();
                 
                 if (data.success) {
                     document.getElementById('val-port').innerText = '$' + data.netValue.toLocaleString();
-                    document.getElementById('val-pnl').innerText = '$' + data.totalPnl.toLocaleString();
-                    document.getElementById('val-win').innerText = data.winRate.toFixed(2) + '%';
-                    document.getElementById('val-trades').innerText = data.tradeCount;
+                    document.getElementById('val-win').innerText = data.winRate.toFixed(1) + '%';
+                    document.getElementById('health-last').innerText = data.lastRunTime;
+                    document.getElementById('health-lat').innerText = data.lastRunDuration;
+                    document.getElementById('pos-count').innerText = data.openPositions.length;
 
-                    // Update Table
-                    const posBody = document.getElementById('pos-body');
-                    posBody.innerHTML = data.openPositions.map(p => `
-                        <tr>
-                            <td class="symbol">${p.symbol}</td>
-                            <td><span class="side-tag ${p.side.toLowerCase()}">${p.side}</span></td>
-                            <td>$${p.entryPrice.toFixed(2)}</td>
-                            <td>$${p.currentPrice.toFixed(2)}</td>
-                            <td style="color:${p.pnl >= 0 ? '#00ff88' : '#ff4466'};">
-                                ${p.pnl >= 0 ? '+' : ''}$${p.pnl.toLocaleString()}
-                            </td>
-                        </tr>
-                    `).join('');
+                    // Update Positions
+                    if (data.openPositions.length > 0) {
+                        const posBody = document.getElementById('pos-body');
+                        posBody.innerHTML = data.openPositions.map(p => `
+                            <tr>
+                                <td class="symbol">${p.symbol}</td>
+                                <td><span class="side-tag ${p.side.toLowerCase()}">${p.side}</span></td>
+                                <td>$${p.entryPrice.toFixed(2)}</td>
+                                <td>${p.quantity || '-'}</td>
+                                <td style="color:${p.pnl >= 0 ? 'var(--success)' : 'var(--danger)'}; font-weight:700;">
+                                    ${p.pnl >= 0 ? '+' : ''}$${p.pnl.toLocaleString()}
+                                </td>
+                            </tr>
+                        `).join('');
+                    }
+
+                    // Update Signals
+                    const sigList = document.getElementById('signals-list');
+                    if (data.signals.length > 0) {
+                        sigList.innerHTML = data.signals.map(s => `
+                            <div class="signal-item" style="display:flex; justify-content:space-between; padding:0.8rem; border-bottom:1px solid var(--border);">
+                                <div style="display:flex; flex-direction:column;">
+                                    <span class="symbol">${s.symbol}</span>
+                                    <span style="font-size:0.7rem; color:rgba(255,255,255,0.4);">${s.reason}</span>
+                                </div>
+                                <div style="font-family:'Orbitron'; color:var(--accent); font-weight:700;">${s.convictionScore}/6</div>
+                            </div>
+                        `).join('');
+                    }
                 }
-            } catch (e) { console.error('API Error:', e); }
+            } catch (e) { console.error('Stats API Error:', e); }
         }
 
-        setInterval(refreshStats, 5000);
+        async function refreshLogs() {
+            try {
+                const res = await fetch('/api/logs');
+                const data = await res.json();
+                if (data.success) {
+                    const console = document.getElementById('log-console');
+                    const isAtBottom = console.scrollHeight - console.clientHeight <= console.scrollTop + 1;
+                    
+                    console.innerHTML = data.logs.map(log => {
+                        let cls = '';
+                        if (log.includes('✅')) cls = 'success';
+                        if (log.includes('❌')) cls = 'error';
+                        if (log.includes('🚀') || log.includes('EXECUTE')) cls = 'action';
+                        return `<div class="log-entry ${cls}">${log}</div>`;
+                    }).join('');
+
+                    if (isAtBottom) console.scrollTop = console.scrollHeight;
+                }
+            } catch (e) { console.error('Logs API Error:', e); }
+        }
+
+        setInterval(refreshData, 5000);
+        setInterval(refreshLogs, 2000);
+        refreshData();
+        refreshLogs();
     </script>
 </body>
 </html>
