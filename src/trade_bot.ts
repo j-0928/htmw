@@ -192,6 +192,20 @@ async function triggerTrade(api: ApiClient, symbol: string, side: 'LONG' | 'SHOR
         });
         
         if (result.success) {
+            // --- VERIFICATION LAYER ---
+            log(`⏳ Verifying fulfillment on HTMW...`);
+            await new Promise(r => setTimeout(r, 3000)); // Wait for HTMW processing
+            
+            const portfolio = await getPortfolio(api);
+            const isFilled = portfolio.positions.some(p => p.symbol.toUpperCase() === symbol.toUpperCase());
+            
+            if (isFilled) {
+                log(`   🎯 [VERIFIED] Trade filled on HTMW backend.`);
+            } else {
+                log(`   ⚠️ [PENDING] Order placed but not yet filled (check Open Orders).`);
+            }
+            // --------------------------
+
             await db.insert(trades).values({
                 symbol,
                 side,

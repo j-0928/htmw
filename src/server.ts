@@ -291,29 +291,29 @@ app.use(express.static(path.join(process.cwd(), 'src/public')));
 // --- DASHBOARD API ---
 app.get('/api/stats', async (req, res) => {
     try {
+        // 1. Fetch LIVE data from HTMW
+        const livePortfolio = await getPortfolio(api);
         const allTrades = await db.select().from(trades);
         const latestSignals = await db.select().from(signals).orderBy(desc(signals.timestamp)).limit(10);
         
-        const openPositions = allTrades.filter(t => t.status === 'OPEN');
-        const closedTrades = allTrades.filter(t => t.status === 'CLOSED');
-        
-        const totalPnl = closedTrades.reduce((s, t) => s + (t.pnl || 0), 0);
-        const winRate = closedTrades.length > 0 ? (closedTrades.filter(t => (t.pnl || 0) > 0).length / closedTrades.length) * 100 : 0;
+        const totalPnl = allTrades.filter(t => t.status === 'CLOSED').reduce((s, t) => s + (t.pnl || 0), 0);
+        const winRate = allTrades.length > 0 ? (allTrades.filter(t => (t.pnl || 0) > 0).length / allTrades.length) * 100 : 0;
         
         res.json({
             success: true,
-            netValue: 100000 + totalPnl,
-            totalPnl,
+            netValue: livePortfolio.portfolioValue || (100000 + totalPnl),
+            totalPnl: (livePortfolio.portfolioValue || 100000) - 100000,
             winRate,
             tradeCount: allTrades.length,
             lastRunTime,
             lastRunDuration,
-            openPositions: openPositions.map(p => ({
+            openPositions: livePortfolio.positions.map(p => ({
                 symbol: p.symbol,
-                side: p.side,
-                entryPrice: p.entryPrice,
-                currentPrice: p.entryPrice, 
-                pnl: 0 
+                side: p.shares > 0 ? 'LONG' : 'SHORT',
+                entryPrice: p.avgCost,
+                currentPrice: p.currentPrice,
+                quantity: Math.abs(p.shares),
+                pnl: p.gainLoss
             })),
             signals: latestSignals
         });
