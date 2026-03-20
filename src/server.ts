@@ -29,7 +29,7 @@ import type { Config } from './types.js';
 const MAX_LOGS = 50;
 const botLogs: string[] = [];
 function addBotLog(msg: string) {
-    const time = new Date().toLocaleTimeString();
+    const time = new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' });
     botLogs.unshift(`[${time}] ${msg}`);
     if (botLogs.length > MAX_LOGS) botLogs.pop();
 }
@@ -395,17 +395,23 @@ const PORT = process.env.PORT || 3000;
 
 // --- Market Hours State Machine ---
 function isMarketOpen() {
-    const now = new Date();
-    // Use Intl to get ET time regardless of server location
-    const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
-    const [date, time] = etStr.split(', ');
-    const [hour, min] = time.split(':').map(Number);
-    const day = now.getDay(); // 0=Sun, 6=Sat
+    // Get ET time regardless of server location
+    const etStr = new Date().toLocaleString('en-US', { 
+        timeZone: 'America/New_York', 
+        hour12: false,
+        weekday: 'short',
+        hour: 'numeric',
+        minute: 'numeric'
+    });
+    
+    // Example: "Fri, 13:10"
+    const isWeekend = etStr.startsWith('Sat') || etStr.startsWith('Sun');
+    const timePart = etStr.split(', ')[1];
+    const [hour, min] = timePart.split(':').map(Number);
 
-    const isWeekday = day >= 1 && day <= 5;
     const isMarketHours = (hour > 9 || (hour === 9 && min >= 30)) && (hour < 16);
     
-    return isWeekday && isMarketHours;
+    return !isWeekend && isMarketHours;
 }
 
 // --- Dynamic Watchlist & Loop ---
@@ -429,7 +435,7 @@ async function startBotLoop() {
             output.split('\n').filter(l => l.trim()).forEach(l => addBotLog(l));
         }
         
-        lastRunTime = new Date().toLocaleTimeString();
+        lastRunTime = new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' });
         lastRunDuration = `${((Date.now() - start) / 1000).toFixed(1)}s`;
         addBotLog(`✅ Cycle completed in ${lastRunDuration}.`);
     } catch (e) {
