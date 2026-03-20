@@ -8,8 +8,9 @@ import { executeTrade } from './tools/executeTrade.js';
 import { getPortfolio } from './tools/getPortfolio.js';
 import { db, initDb } from './db/index.js';
 import { trades, signals, dailyMetrics } from './db/schema.js';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, desc } from 'drizzle-orm';
 import { EliteStrategyV4, Candle, PositionState } from './core/strategy_v4.js';
+import { watchlist as watchlistTable } from './db/schema.js';
 
 // --- CONFIG ---
 const VOLATILE_TICKERS = ["LBTYB","DAWN","AAOI","AXTI","SOC","BW","HIMS","SMX","RCAT","EOSE","CTMX","UMAC","SLDB","ASTI","PL","VIR","CRCL","VG","NUAI","SGML","AMPX","ARRY","ALM","HYMC","IBRX","LITE","NUVB","MDB","PDYN","FLY","UAMY","LUNR","GEMI","CSIQ","TTD","EAF","SMCI","NTSK","ASST","FIGR","ACHC","NVTS","ONDS","NBIS","TE","SEDG","OSS","RDW","BTDR","MARA","BE","PLSE","SHLS","AEVA","DNA","POET","OUST","SEI","WULF","FSLY"];
@@ -31,16 +32,20 @@ interface Position {
     rangeHeight: number;
 }
 
-export async function runTradeBot(api: ApiClient): Promise<string> {
+export async function runTradeBot(api: ApiClient, afterHours: boolean = false): Promise<string> {
     const output: string[] = [];
     const log = (msg: string) => {
         output.push(msg);
         console.error(`[TRADE BOT] ${msg}`);
     };
 
-    log('--- 🤖 ELITE SNIPER v4 (+538% QUANT ALPHA) ---');
+    log(`--- 🤖 ELITE SNIPER v4 (${afterHours ? 'AFTER HOURS ALPHA' : 'MARKET OPEN'}) ---`);
     await initDb();
     
+    if (afterHours) {
+        return await runAfterHoursAnalysis(api, log);
+    }
+
     // 1. Fetch LIVE portfolio
     let cashAvailable = 100000;
     const heldSymbols = new Set<string>();
@@ -93,25 +98,70 @@ export async function runTradeBot(api: ApiClient): Promise<string> {
         }).where(eq(trades.id, trade.id));
     }
 
-    // 3. Scan for New Signals (Top 60 Quant Universe)
+    // 3. Scan for New Signals (Use Dynamic Watchlist)
     if (dbOpenTrades.length < 4) {
-        log(`🔎 Scanning ${VOLATILE_TICKERS.length} Tickers for Lightning Branch entries...`);
+        const dbWatchlist = await db.select().from(watchlistTable).orderBy(desc(watchlistTable.score)).limit(60);
+        const activeWatchlist = dbWatchlist.length > 0 ? dbWatchlist.map(w => w.symbol) : VOLATILE_TICKERS;
+        
+        log(`🔎 Scanning ${activeWatchlist.length} Tickers for Lightning Branch entries...`);
         const livePortValue = (portfolioPositions.length > 0 || cashAvailable > 0) ? (portfolioPositions.reduce((s,p) => s + (p.marketValue || 0), 0) + cashAvailable) : 100000;
         const amountPerTrade = livePortValue * MAX_POS_PCT;
         log(`📈 Dynamic Scaling: Investing $${amountPerTrade.toFixed(2)} per position (24% of $${livePortValue.toFixed(2)})`);
 
-        for (const symbol of VOLATILE_TICKERS) {
+        for (const symbol of activeWatchlist) {
             if (heldSymbols.has(symbol)) continue;
             const signal = await checkSetup(symbol, log);
             if (signal) {
                 const success = await triggerTrade(api, symbol, signal, amountPerTrade, log);
-                if (success) break; // Limit entries per loop
+                if (success) break; 
             }
         }
     }
 
     log('--- 🤖 CYCLE COMPLETE ---');
     return output.join('\n');
+}
+
+async function runAfterHoursAnalysis(api: ApiClient, log: (msg: string) => void): Promise<string> {
+    log('🌌 Starting Lightning Branch After-Hours Quant Analysis...');
+    
+    // 1. Get Universe (Top 200 high-alpha tickers)
+    const universe = VOLATILE_TICKERS.slice(0, 100); // Placeholder for 1000
+    log(`🔎 Analyzing ${universe.length} high-potential tickers...`);
+    
+    const candidates: { symbol: string, side: string, score: number, reason: string }[] = [];
+    
+    for (const symbol of universe) {
+        const raw = await fetchIntradayData(symbol, '5d', '15m');
+        if (!raw.data || raw.data.length < 50) continue;
+        
+        // Simplified Branch Check (Volatility + Trend)
+        const closes = raw.data.map(d => d.close);
+        const vol = Math.sqrt(closes.slice(-20).reduce((s, x, i, a) => s + Math.pow(x - (a.reduce((p,c)=>p+c)/20), 2), 0) / 20);
+        const trend = closes[closes.length-1] - closes[closes.length-20];
+        
+        if (vol > 0.5) {
+            candidates.push({
+                symbol,
+                side: trend > 0 ? 'LONG' : 'SHORT',
+                score: Math.min(6, Math.floor(vol * 2)),
+                reason: 'After-Hours Volatility Alpha'
+            });
+        }
+    }
+    
+    // 2. Update DB Watchlist
+    log(`💾 Saving Top ${candidates.length} candidates to Dynamic Watchlist...`);
+    await db.delete(watchlistTable);
+    for (const cand of candidates.slice(0, 60)) {
+        await db.insert(watchlistTable).values(cand).onConflictDoUpdate({
+            target: watchlistTable.symbol,
+            set: { score: cand.score, reason: cand.reason }
+        });
+    }
+    
+    log(`✅ After-Hours Analysis Complete. ${candidates.length} tickers prepped for Market Open.`);
+    return 'After-Hours Analysis Success';
 }
 
 async function checkPosition(api: ApiClient, symbol: string, pos: Position, log: (msg: string) => void) {

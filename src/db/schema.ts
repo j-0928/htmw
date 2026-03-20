@@ -36,3 +36,12 @@ export const dailyMetrics = pgTable('daily_metrics', {
     winRate: doublePrecision('win_rate'),
     totalTrades: integer('total_trades')
 });
+
+export const watchlist = pgTable('watchlist', {
+    id: serial('id').primaryKey(),
+    symbol: text('symbol').notNull().unique(),
+    side: text('side').notNull(),
+    score: integer('score').notNull(),
+    reason: text('reason'),
+    discoveryTime: timestamp('discovery_time').defaultNow()
+});

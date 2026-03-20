@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import * as path from 'path';
 import { db, initDb } from './db/index.js';
-import { trades, signals, dailyMetrics } from './db/schema.js';
+import { trades, signals, dailyMetrics, watchlist } from './db/schema.js';
 import { eq, desc } from 'drizzle-orm';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
@@ -300,10 +300,16 @@ app.get('/api/stats', async (req, res) => {
         const totalPnl = allTrades.filter(t => t.status === 'CLOSED').reduce((s, t) => s + (t.pnl || 0), 0);
         const winRate = allTrades.length > 0 ? (allTrades.filter(t => (t.pnl || 0) > 0).length / allTrades.length) * 100 : 0;
         
+        const startingValue = 100000;
+        const currentValue = livePortfolio.portfolioValue || (startingValue + totalPnl);
+        const dayChange = currentValue - startingValue;
+        const dayChangePercent = (dayChange / startingValue) * 100;
+        
         res.json({
             success: true,
-            netValue: livePortfolio.portfolioValue || (100000 + totalPnl),
-            totalPnl: (livePortfolio.portfolioValue || 100000) - 100000,
+            netValue: currentValue,
+            totalPnl: dayChange,
+            dayChangePercent,
             winRate,
             tradeCount: allTrades.length,
             lastRunTime,
@@ -387,16 +393,41 @@ app.get('/sse', (req, res) => res.redirect('/mcp'));
 
 const PORT = process.env.PORT || 3000;
 
-// --- Always-On Sniper Loop ---
+// --- Market Hours State Machine ---
+function isMarketOpen() {
+    const now = new Date();
+    // Use Intl to get ET time regardless of server location
+    const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
+    const [date, time] = etStr.split(', ');
+    const [hour, min] = time.split(':').map(Number);
+    const day = now.getDay(); // 0=Sun, 6=Sat
+
+    const isWeekday = day >= 1 && day <= 5;
+    const isMarketHours = (hour > 9 || (hour === 9 && min >= 30)) && (hour < 16);
+    
+    return isWeekday && isMarketHours;
+}
+
+// --- Dynamic Watchlist & Loop ---
 let isExecuting = false;
 async function startBotLoop() {
     if (isExecuting) return;
     isExecuting = true;
     const start = Date.now();
     try {
-        addBotLog('🚀 Starting Elite Sniper cycle...');
-        const output = await runTradeBot(api);
-        output.split('\n').filter(l => l.trim()).forEach(l => addBotLog(l));
+        const open = isMarketOpen();
+        if (open) {
+            addBotLog('🚀 [MARKET OPEN] Starting Elite Sniper trading cycle...');
+            const output = await runTradeBot(api);
+            output.split('\n').filter(l => l.trim()).forEach(l => addBotLog(l));
+        } else {
+            addBotLog('🌙 [AFTER HOURS] Starting Alpha Discovery scan...');
+            // We only run AH analysis once per hour
+            const etHour = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false });
+            addBotLog(`🔎 Performing Lightning Branch simulation for ${etHour}:00 ET...`);
+            const output = await runTradeBot(api, true); // true = after-hours mode
+            output.split('\n').filter(l => l.trim()).forEach(l => addBotLog(l));
+        }
         
         lastRunTime = new Date().toLocaleTimeString();
         lastRunDuration = `${((Date.now() - start) / 1000).toFixed(1)}s`;

@@ -185,7 +185,16 @@
                     document.getElementById('health-lat').innerText = data.lastRunDuration;
                     document.getElementById('pos-count').innerText = data.openPositions.length;
 
-                    // Update Positions
+                    // Update Change Percent
+                    const chPort = document.getElementById('ch-port');
+                    const sign = data.dayChangePercent >= 0 ? '+' : '';
+                    chPort.innerText = `${sign}${data.dayChangePercent.toFixed(2)}% (Day)`;
+                    chPort.className = `change ${data.dayChangePercent >= 0 ? 'up' : 'down'}`;
+
+                    const valUnreal = document.getElementById('val-unrealized');
+                    const totalUnreal = data.openPositions.reduce((s, p) => s + p.pnl, 0);
+                    valUnreal.innerText = (totalUnreal >= 0 ? '+' : '-') + '$' + Math.abs(totalUnreal).toLocaleString();
+                    valUnreal.style.color = totalUnreal >= 0 ? 'var(--success)' : 'var(--danger)';
                     if (data.openPositions.length > 0) {
                         const posBody = document.getElementById('pos-body');
                         posBody.innerHTML = data.openPositions.map(p => `
