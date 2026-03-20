@@ -7,8 +7,15 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
+const dbUrl = process.env.DATABASE_URL;
+if (!dbUrl) {
+    console.error("❌ CRITICAL: DATABASE_URL environment variable is MISSING.");
+} else {
+    console.log(`✅ DATABASE_URL detected (length: ${dbUrl.length})`);
+}
+
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: dbUrl,
     ssl: {
         rejectUnauthorized: false
     }
