@@ -319,51 +319,85 @@ async function checkSetup(symbol: string, state: BotState, log: (msg: string) =>
 
     if (price < 5) return null;
 
-    // 1. Gap Filter
-    if (prevClose > 0) {
-        const gapPct = Math.abs((today[0].open - prevClose) / prevClose);
-        if (gapPct < 0.002) return null;
-    }
-
-    // 2. Range Filter
+    // ELITE MULTI-FACTOR SNIPER LOGIC (6 FACTORS)
+    // Goal: High Conviction entries with 0-delay math
+    const enriched = addEliteIndicators(today);
+    const c = enriched[enriched.length - 1]; // Current candle
     const rangeHeight = rangeHigh - rangeLow;
-    const rangePct = rangeHeight / rangeLow;
-    if (rangePct < 0.005 || rangePct > 0.12) return null;
+    if (rangeHeight === 0 || (rangeHeight / rangeLow) > 0.08) return null;
 
-    // 3. Volume Filter (Stricter based on backtesting: 1.5x Avg)
-    if (currentCandle.volume > 0 && currentCandle.volume < avgVol * 1.5) {
-        log(`⏳ [WAIT] ${symbol}: Volume too low (${currentCandle.volume.toLocaleString()} vs req ${(avgVol * 1.5).toLocaleString()})`);
-        return null;
-    }
+    // CONVECTION SCORE CALCULATION
+    let scoreLong = 0;
+    if (price > rangeHigh) scoreLong++;
+    if (c.volume > avgVol * 3.0) scoreLong++; // 3x Volume Surge
+    if (price > c.vwap) scoreLong++;
+    if (c.rsi < 70) scoreLong++;
+    if (c.cmf > 0) scoreLong++;
+    if (c.isBullish) scoreLong++; // SuperTrend direction
 
-    // 4. Trend Filter (SMA20 Alignment)
-    if (today.length < 20) return null; // Need 20 candles for SMA
-    const sma20 = today.slice(-20).reduce((sum, c) => sum + c.close, 0) / 20;
-    const isAboveSma = price > sma20;
-    const isBelowSma = price < sma20;
+    let scoreShort = 0;
+    if (price < rangeLow) scoreShort++;
+    if (c.volume > avgVol * 3.0) scoreShort++;
+    if (price < c.vwap) scoreShort++;
+    if (c.rsi > 30) scoreShort++;
+    if (c.cmf < 0) scoreShort++;
+    if (!c.isBullish) scoreShort++;
 
-    const relVol = avgVol > 0 ? currentCandle.volume / avgVol : 0;
-    const rangeHeightAbs = rangeHigh - rangeLow;
+    // Sniper Threshold: 5/6 for High Conviction
+    const MIN_CONVICTION = 5;
 
-    // 5. Short Bias Filter (New: "Stocks that will fail")
-    // If gapping down > 0.5%, prioritize shorting
-    const gapPct = prevClose > 0 ? (today[0].open - prevClose) / prevClose : 0;
-    const isBearishGap = gapPct < -0.005;
-
-    if (price > rangeHigh && !isBearishGap && isAboveSma) {
+    if (scoreLong >= MIN_CONVICTION) {
+        log(`🎯 [ELITE LONG] ${symbol} High Conviction Score: ${scoreLong}/6 | Trigger!`);
         return {
             symbol, side: 'LONG', entryPrice: rangeHigh, stopLoss: rangeLow,
-            target1: rangeHigh + rangeHeightAbs, rangeHeight: rangeHeightAbs, conviction: relVol
+            target1: rangeHigh + (rangeHeight * 2), // 2R sniper target
+            rangeHeight: rangeHeight, conviction: scoreLong
         };
-    } else if (price < rangeLow && isBelowSma) {
-        if (isBearishGap) log(`📉 [BEARISH BIAS] ${symbol} gapping down. Prioritizing short.`);
+    } else if (scoreShort >= MIN_CONVICTION) {
+        log(`🎯 [ELITE SHORT] ${symbol} High Conviction Score: ${scoreShort}/6 | Trigger!`);
         return {
             symbol, side: 'SHORT', entryPrice: rangeLow, stopLoss: rangeHigh,
-            target1: rangeLow - rangeHeightAbs, rangeHeight: rangeHeightAbs, conviction: relVol
+            target1: rangeLow - (rangeHeight * 2),
+            rangeHeight: rangeHeight, conviction: scoreShort
         };
     }
 
     return null;
+}
+
+/**
+ * Institutional Elite Indicators (Zero-Lag Incremental Math)
+ */
+function addEliteIndicators(candles: any[]): any[] {
+    let cumPV = 0, cumVol = 0, avgG = 0, avgL = 0, trS = 0;
+    return candles.map((c, i) => {
+        const hlcc = (c.high + c.low + c.close + c.close) / 4;
+        cumPV += hlcc * c.volume; cumVol += c.volume;
+        const vwap = cumPV / cumVol;
+        
+        if (i > 0) {
+            const d = c.close - (candles[i-1]?.close || c.close);
+            const g = Math.max(0, d), l = Math.max(0, -d);
+            avgG = i < 14 ? avgG + g : (avgG * 13 + g) / 14;
+            avgL = i < 14 ? avgL + l : (avgL * 13 + l) / 14;
+        }
+        const rsi = 100 - (100 / (1 + (avgL === 0 ? 100 : avgG/avgL)));
+        
+        const tr = i === 0 ? (c.high - c.low) : Math.max(c.high - c.low, Math.abs(c.high - (candles[i-1]?.close || 0)), Math.abs(c.low - (candles[i-1]?.close || 0)));
+        trS = i < 14 ? trS + tr : (trS * 13 + tr) / 14;
+        const atr = trS;
+
+        const hl2 = (c.high + c.low) / 2;
+        const isBullish = c.close > (hl2 - (3 * atr));
+        
+        // CMF-20
+        const slice = candles.slice(Math.max(0, i-19), i+1);
+        let mfv = 0, vol = 0;
+        slice.forEach(s => { const r = s.high - s.low; mfv += (r===0?0:((s.close-s.low)-(s.high-s.close))/r) * s.volume; vol += s.volume; });
+        const cmf = vol === 0 ? 0 : mfv / vol;
+
+        return { ...c, vwap, rsi, atr, isBullish, cmf };
+    });
 }
 
 async function triggerTrade(api: ApiClient, sig: Signal, amount: number, state: BotState, log: (msg: string) => void): Promise<boolean> {
