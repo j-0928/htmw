@@ -1,5 +1,9 @@
 import 'dotenv/config';
 import express from 'express';
+import * as path from 'path';
+import { db, initDb } from './db/index.js';
+import { trades, signals, dailyMetrics } from './db/schema.js';
+import { eq, desc } from 'drizzle-orm';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import {
@@ -192,9 +196,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             {
                 name: 'run_trade_bot',
                 description: 'Run the automated "Insane Profit" Trade Bot strategies. Automatically executes trades based on 50+ volatile tickers using ORB strategy with 70% win rate.',
+                inputSchema: { type: 'object', properties: {}, required: [] },
+            },
+            {
+                name: 'get_database_stats',
+                description: 'Get real-time trading statistics from the PostgreSQL database (Total PnL, Win Rate, Portfolio Value, Open Positions).',
+                inputSchema: { type: 'object', properties: {}, required: [] },
+            },
+            {
+                name: 'get_signals',
+                description: 'Get the latest "Lightning Branch" Quant signals from the database.',
                 inputSchema: {
                     type: 'object',
-                    properties: {},
+                    properties: { limit: { type: 'number', description: 'Number of signals to fetch (default: 20)' } },
                     required: [],
                 },
             },
@@ -237,6 +251,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 return { content: [{ type: 'text', text: JSON.stringify(await getOrbCandidates((args as any).symbols), null, 2) }] };
             case 'run_trade_bot':
                 return { content: [{ type: 'text', text: await runTradeBot(api) }] };
+            case 'get_database_stats':
+                const allTrades = await db.select().from(trades);
+                const closed = allTrades.filter(t => t.status === 'CLOSED');
+                const pnl = closed.reduce((s, t) => s + (t.pnl || 0), 0);
+                const wr = closed.length > 0 ? (closed.filter(t => (t.pnl || 0) > 0).length / closed.length) * 100 : 0;
+                return { content: [{ type: 'text', text: JSON.stringify({
+                    totalTrades: allTrades.length,
+                    openPositions: allTrades.filter(t => t.status === 'OPEN').length,
+                    totalPnL: pnl,
+                    winRate: `${wr.toFixed(2)}%`,
+                    portfolioValue: 100000 + pnl
+                }, null, 2) }] };
+            case 'get_signals':
+                const sigs = await db.select().from(signals).orderBy(desc(signals.timestamp)).limit((args as any).limit || 20);
+                return { content: [{ type: 'text', text: JSON.stringify(sigs, null, 2) }] };
             default:
                 throw new Error(`Unknown tool: ${name}`);
         }
@@ -247,6 +276,44 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 const app = express();
 app.use(express.json());
+app.use(express.static(path.join(process.cwd(), 'src/public'))); 
+
+// --- DASHBOARD API ---
+app.get('/api/stats', async (req, res) => {
+    try {
+        const allTrades = await db.select().from(trades);
+        const latestSignals = await db.select().from(signals).orderBy(desc(signals.timestamp)).limit(10);
+        
+        const openPositions = allTrades.filter(t => t.status === 'OPEN');
+        const closedTrades = allTrades.filter(t => t.status === 'CLOSED');
+        
+        const totalPnl = closedTrades.reduce((s, t) => s + (t.pnl || 0), 0);
+        const winRate = closedTrades.length > 0 ? (closedTrades.filter(t => (t.pnl || 0) > 0).length / closedTrades.length) * 100 : 0;
+        
+        res.json({
+            success: true,
+            netValue: 100000 + totalPnl,
+            totalPnl,
+            winRate,
+            tradeCount: allTrades.length,
+            openPositions: openPositions.map(p => ({
+                symbol: p.symbol,
+                side: p.side,
+                entryPrice: p.entryPrice,
+                currentPrice: p.entryPrice, // Placeholder until live feed
+                pnl: 0 // Placeholder
+            })),
+            signals: latestSignals
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, error: String(e) });
+    }
+});
+
+// Root serves the Dashboard
+app.get('/', (req, res) => {
+    res.sendFile(path.join(process.cwd(), 'src/public/index.html'));
+});
 
 // Store transports by session ID to support multiple concurrent users
 const transports = new Map<string, SSEServerTransport>();

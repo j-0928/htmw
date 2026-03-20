@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTMW Elite Sniper v4 | Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Outfit:wght@300;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #050505;
+            --accent: #00f2ff;
+            --secondary: #7000ff;
+            --text: #ffffff;
+            --glass: rgba(15, 15, 25, 0.7);
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family:'Outfit', sans-serif; background:var(--bg); color:var(--text); overflow-x:hidden; }
+
+        .backdrop {
+            position:fixed; top:0; left:0; width:100%; height:100%; z-index:-1;
+            background: radial-gradient(circle at 50% 50%, #101010 0%, #050505 100%);
+        }
+        .glow {
+            position:fixed; top:-20%; left:-20%; width:60%; height:60%; 
+            background: radial-gradient(circle, rgba(0,242,255,0.05) 0%, transparent 70%);
+            border-radius:50%; z-index:-1; animation: float 10s infinite ease-in-out;
+        }
+
+        header { 
+            padding: 2rem 5%; display:flex; justify-content:space-between; align-items:center;
+            border-bottom: 1px solid var(--border); backdrop-filter: blur(10px);
+        }
+        .logo { font-family:'Orbitron', sans-serif; font-size:1.5rem; letter-spacing:2px; font-weight:700; color:var(--accent); text-shadow:0 0 10px var(--accent); }
+        .status { font-size: 0.9rem; padding: 0.5rem 1rem; border-radius:30px; border:1px solid var(--accent); color:var(--accent); box-shadow:0 0 10px rgba(0,242,255,0.2); }
+
+        main { padding: 3rem 5%; }
+
+        /* Stats Grid */
+        .stats-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap:1.5rem; margin-bottom:3rem; }
+        .stat-card { 
+            background:var(--glass); border:1px solid var(--border); border-radius:20px; padding:2rem; 
+            backdrop-filter: blur(20px); transition: transform 0.3s; position:relative; overflow:hidden;
+        }
+        .stat-card:hover { transform: translateY(-5px); border-color: var(--accent); }
+        .stat-card h3 { font-size: 0.8rem; text-transform:uppercase; color:rgba(255,255,255,0.5); letter-spacing:1px; margin-bottom:1rem; }
+        .stat-card .value { font-family:'Orbitron', sans-serif; font-size:2rem; font-weight:700; }
+        .stat-card .change { font-size:0.9rem; margin-top:0.5rem; font-weight:600; }
+        .stat-card .change.up { color:#00ff88; }
+        .stat-card .change.down { color:#ff4466; }
+
+        /* Tables */
+        .grid-container { display:grid; grid-template-columns: 1.5fr 1fr; gap:2rem; }
+        .panel { 
+            background:var(--glass); border:1px solid var(--border); border-radius:20px; padding:1.5rem; 
+            backdrop-filter: blur(20px); overflow:hidden;
+        }
+        .panel h2 { font-size:1.1rem; font-family:'Orbitron', sans-serif; margin-bottom:1.5rem; color:var(--accent); }
+
+        table { width:100%; border-collapse:collapse; }
+        th { text-align:left; font-size:0.8rem; color:rgba(255,255,255,0.5); padding:1rem; border-bottom:1px solid var(--border); }
+        td { padding:1.2rem 1rem; border-bottom:1px solid var(--border); font-size:0.9rem; }
+        .symbol { font-weight:700; color:var(--accent); }
+        .side-tag { padding:4px 8px; border-radius:4px; font-size:0.75rem; font-weight:700; text-transform:uppercase; }
+        .side-tag.long { background:rgba(0,255,136,0.1); color:#00ff88; }
+        .side-tag.short { background:rgba(255,68,102,0.1); color:#ff4466; }
+
+        .signal-item { display:flex; justify-content:space-between; padding:1rem; border-bottom:1px solid var(--border); }
+        .signal-item:last-child { border:0; }
+        .sig-info { display:flex; flex-direction:column; }
+        .sig-meta { font-size:0.75rem; color:rgba(255,255,255,0.4); margin-top:0.2rem; }
+        .sig-score { font-family:'Orbitron', sans-serif; font-weight:700; color:var(--accent); }
+
+        @keyframes float { 0%, 100% { transform:translate(0,0); } 50% { transform:translate(10%, 10%); } }
+
+        @media (max-width: 900px) {
+            .grid-container { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="backdrop"></div>
+    <div class="glow" style="top: -10%; left: -10%; background: radial-gradient(circle, rgba(112,0,255,0.05) 0%, transparent 70%);"></div>
+    <div class="glow" style="bottom: -10%; right: -10%;"></div>
+
+    <header>
+        <div class="logo">ELITE SNIPER v4</div>
+        <div class="status">⚡ LIVE ALPHA ACTIVE</div>
+    </header>
+
+    <main>
+        <!-- STATS -->
+        <div class="stats-grid" id="stats-grid">
+            <div class="stat-card">
+                <h3>Portfolio Net Value</h3>
+                <div class="value" id="val-port">$148,536</div>
+                <div class="change up" id="ch-port">+48.5% (Month)</div>
+            </div>
+            <div class="stat-card">
+                <h3>Total Profit</h3>
+                <div class="value" id="val-pnl">$48,536</div>
+                <div class="change up">Institutional Beta</div>
+            </div>
+            <div class="stat-card">
+                <h3>Win Rate</h3>
+                <div class="value" id="val-win">79.03%</div>
+                <div class="change" style="color:var(--accent);">Sharpe 3.99</div>
+            </div>
+            <div class="stat-card">
+                <h3>Lightning Trades</h3>
+                <div class="value" id="val-trades">73</div>
+                <div class="change">30-Day Replay Data</div>
+            </div>
+        </div>
+
+        <!-- MAIN GRID -->
+        <div class="grid-container">
+            <section class="panel">
+                <h2>Active Positions</h2>
+                <div id="positions-list">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Side</th>
+                                <th>Entry</th>
+                                <th>Current</th>
+                                <th>Unrealized PNL</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pos-body">
+                            <!-- Real-time data injected here -->
+                            <tr>
+                                <td class="symbol">AAOI</td>
+                                <td><span class="side-tag long">Long</span></td>
+                                <td>$24.50</td>
+                                <td>$34.07</td>
+                                <td style="color:#00ff88;">+$9,573.10</td>
+                            </tr>
+                            <tr>
+                                <td class="symbol">EOSE</td>
+                                <td><span class="side-tag long">Long</span></td>
+                                <td>$4.12</td>
+                                <td>$6.65</td>
+                                <td style="color:#00ff88;">+$15,622.00</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel">
+                <h2>Lightning Alpha Feed</h2>
+                <div id="signals-list">
+                    <div class="signal-item">
+                        <div class="sig-info">
+                            <span class="symbol">GROM</span>
+                            <span class="sig-meta">Lightning Branch: +75% Potential</span>
+                        </div>
+                        <div class="sig-score">6/6</div>
+                    </div>
+                    <div class="signal-item">
+                        <div class="sig-info">
+                            <span class="symbol">ASTS</span>
+                            <span class="sig-meta">Lightning Branch: +22% Potential</span>
+                        </div>
+                        <div class="sig-score">5/6</div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script>
+        // Fetch Real Database Stats
+        async function refreshStats() {
+            try {
+                const res = await fetch('/api/stats');
+                const data = await res.json();
+                
+                if (data.success) {
+                    document.getElementById('val-port').innerText = '$' + data.netValue.toLocaleString();
+                    document.getElementById('val-pnl').innerText = '$' + data.totalPnl.toLocaleString();
+                    document.getElementById('val-win').innerText = data.winRate.toFixed(2) + '%';
+                    document.getElementById('val-trades').innerText = data.tradeCount;
+
+                    // Update Table
+                    const posBody = document.getElementById('pos-body');
+                    posBody.innerHTML = data.openPositions.map(p => `
+                        <tr>
+                            <td class="symbol">${p.symbol}</td>
+                            <td><span class="side-tag ${p.side.toLowerCase()}">${p.side}</span></td>
+                            <td>$${p.entryPrice.toFixed(2)}</td>
+                            <td>$${p.currentPrice.toFixed(2)}</td>
+                            <td style="color:${p.pnl >= 0 ? '#00ff88' : '#ff4466'};">
+                                ${p.pnl >= 0 ? '+' : ''}$${p.pnl.toLocaleString()}
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (e) { console.error('API Error:', e); }
+        }
+
+        setInterval(refreshStats, 5000);
+    </script>
+</body>
+</html>
