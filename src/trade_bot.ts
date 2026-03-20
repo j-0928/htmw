@@ -53,7 +53,7 @@ export async function runTradeBot(api: ApiClient): Promise<string> {
         portfolioPositions.forEach((pos: any) => {
             if (pos.symbol) heldSymbols.add(pos.symbol.toUpperCase());
         });
-        log(`💰 Cash Available: $${cashAvailable.toFixed(2)}`);
+        log(`💰 Cash Available: $${cashAvailable.toFixed(2)} | Portfolio Value: $${(portfolio.portfolioValue || 100000).toFixed(2)}`);
     } catch (e) {
         log(`⚠️ Could not fetch portfolio, using defaults.`);
     }
@@ -96,7 +96,9 @@ export async function runTradeBot(api: ApiClient): Promise<string> {
     // 3. Scan for New Signals (Top 60 Quant Universe)
     if (dbOpenTrades.length < 4) {
         log(`🔎 Scanning ${VOLATILE_TICKERS.length} Tickers for Lightning Branch entries...`);
-        const amountPerTrade = 100000 * MAX_POS_PCT;
+        const livePortValue = (portfolioPositions.length > 0 || cashAvailable > 0) ? (portfolioPositions.reduce((s,p) => s + (p.marketValue || 0), 0) + cashAvailable) : 100000;
+        const amountPerTrade = livePortValue * MAX_POS_PCT;
+        log(`📈 Dynamic Scaling: Investing $${amountPerTrade.toFixed(2)} per position (24% of $${livePortValue.toFixed(2)})`);
 
         for (const symbol of VOLATILE_TICKERS) {
             if (heldSymbols.has(symbol)) continue;
