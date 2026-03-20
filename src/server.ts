@@ -370,13 +370,38 @@ app.get('/sse', (req, res) => res.redirect('/mcp'));
 
 const PORT = process.env.PORT || 3000;
 
+// --- Always-On Sniper Loop ---
+let isExecuting = false;
+async function startBotLoop() {
+    if (isExecuting) return;
+    isExecuting = true;
+    try {
+        console.error('🚀 [BOT LOOP] Starting scheduled Elite Sniper cycle...');
+        await runTradeBot(api);
+        console.error('✅ [BOT LOOP] Cycle completed.');
+    } catch (e) {
+        console.error('❌ [BOT LOOP] Error:', e);
+    } finally {
+        isExecuting = false;
+    }
+}
+
 // Note: In a production environment, you might want to lazily authenticate per session
 // or use a shared session pool. For simplicity and reliability in HTMW context, 
 // we login once to verify credentials at startup.
-auth.login().then(() => {
+auth.login().then(async () => {
+    await initDb();
+    console.error('📡 Database Initialized.');
+    
     app.listen(PORT, () => {
         console.error(`HTMW MCP SSE Server running on http://localhost:${PORT}/mcp`);
+        console.error(`📊 Dashboard available at http://localhost:${PORT}/`);
     });
+
+    // Start the Always-On Sniper (10 min interval)
+    startBotLoop(); // Initial run
+    setInterval(startBotLoop, 10 * 60 * 1000); 
+
 }).catch(err => {
     console.error('Critical Failure: Could not initial-login to HTMW:', err);
     process.exit(1);
