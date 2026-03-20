@@ -37,7 +37,8 @@ export async function getOpenOrders(api: ApiClient): Promise<OpenOrder[]> {
 
     const now = new Date();
     now.setDate(now.getDate() + 1);
-    const past = new Date('2000-01-01');
+    const past = new Date();
+    past.setDate(past.getDate() - 30); // Institutional Optimization: Only look back 30 days
 
     const formatDate = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 
@@ -57,7 +58,7 @@ export async function getOpenOrders(api: ApiClient): Promise<OpenOrder[]> {
         formData.append('pageSize', String(PAGE_SIZE));
         formData.append('sortField', 'CreateDate');
         formData.append('sortDirection', 'DESC');
-        formData.append('status', '');
+        formData.append('status', 'Open'); // Institutional Optimization: Filter server-side
         formData.append('startDate', formatDate(past));
         formData.append('endDate', formatDate(now));
 

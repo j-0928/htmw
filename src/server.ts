@@ -1,5 +1,5 @@
-import 'dotenv/config';
 import express from 'express';
+import { performance } from 'perf_hooks';
 import * as path from 'path';
 import { db, initDb } from './db/index.js';
 import { trades, signals, dailyMetrics, watchlist } from './db/schema.js';
@@ -292,9 +292,11 @@ app.use(express.static(path.join(process.cwd(), 'src/public')));
 // --- DASHBOARD API ---
 app.get('/api/stats', async (req, res) => {
     try {
-        // 1. Fetch LIVE data from HTMW
+        const startTime = performance.now();
         const livePortfolio = await getPortfolio(api);
-        console.log(`[API] Scraped Net Value: $${livePortfolio.portfolioValue}, Cash: $${livePortfolio.cashBalance}, Positions: ${livePortfolio.positions.length}`);
+        const latency = performance.now() - startTime;
+        
+        console.log(`[API] Scraped Net Value: $${livePortfolio.portfolioValue}, Cash: $${livePortfolio.cashBalance}, Positions: ${livePortfolio.positions.length} (Latency: ${latency.toFixed(0)}ms)`);
         
         const allTrades = await db.select().from(trades);
         const latestSignals = await db.select().from(signals).orderBy(desc(signals.timestamp)).limit(10);
@@ -316,6 +318,7 @@ app.get('/api/stats', async (req, res) => {
             tradeCount: allTrades.length,
             lastRunTime,
             lastRunDuration,
+            latency: `${latency.toFixed(0)}ms`,
             openPositions: livePortfolio.positions.map(p => ({
                 symbol: p.symbol,
                 side: p.shares > 0 ? 'LONG' : 'SHORT',
