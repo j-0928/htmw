@@ -44,9 +44,14 @@ function saveToCache(symbol: string, type: string, params: string, data: any) {
     fs.writeFileSync(getCachePath(symbol, type, params), JSON.stringify(data));
 }
 
-function getFromCache(symbol: string, type: string, params: string): any | null {
+function getFromCache(symbol: string, type: string, params: string, ttlSeconds: number = 0): any | null {
     const p = getCachePath(symbol, type, params);
     if (fs.existsSync(p)) {
+        if (ttlSeconds > 0) {
+            const stats = fs.statSync(p);
+            const age = (Date.now() - stats.mtimeMs) / 1000;
+            if (age > ttlSeconds) return null; // Expired
+        }
         return JSON.parse(fs.readFileSync(p, 'utf-8'));
     }
     return null;
@@ -83,8 +88,11 @@ export async function fetchHistoricalData(symbol: string, start: string, end: st
 }
 
 export async function fetchIntradayData(symbol: string, range: string = '1mo', interval: string = '5m'): Promise<HistoricalData> {
-    const cache = getFromCache(symbol, 'intraday', `${range}_${interval}`);
+    const cache = getFromCache(symbol, 'intraday', `${range}_${interval}`, 60); // 60s TTL for live
     if (cache) return cache;
+
+    // Safety Throttler (Avoid hitting Yahoo too fast)
+    await new Promise(r => setTimeout(r, Math.random() * 150)); 
 
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}`;
     
