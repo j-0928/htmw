@@ -395,20 +395,22 @@ const PORT = process.env.PORT || 3000;
 
 // --- Market Hours State Machine ---
 function isMarketOpen() {
-    // Get ET time regardless of server location
-    const etStr = new Date().toLocaleString('en-US', { 
-        timeZone: 'America/New_York', 
+    const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
         hour12: false,
         weekday: 'short',
         hour: 'numeric',
         minute: 'numeric'
     });
     
-    // Example: "Fri, 13:10"
-    const isWeekend = etStr.startsWith('Sat') || etStr.startsWith('Sun');
-    const timePart = etStr.split(', ')[1];
-    const [hour, min] = timePart.split(':').map(Number);
+    const parts = formatter.formatToParts(new Date());
+    const getPart = (type: string) => parts.find(p => p.type === type)?.value || '';
+    
+    const weekday = getPart('weekday');
+    const hour = parseInt(getPart('hour')) || 0;
+    const min = parseInt(getPart('minute')) || 0;
 
+    const isWeekend = weekday === 'Sat' || weekday === 'Sun';
     const isMarketHours = (hour > 9 || (hour === 9 && min >= 30)) && (hour < 16);
     
     return !isWeekend && isMarketHours;

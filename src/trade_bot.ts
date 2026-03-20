@@ -170,6 +170,7 @@ async function checkPosition(api: ApiClient, symbol: string, pos: Position, log:
 
     const enriched = EliteStrategyV4.calculateEliteIndicators(raw.data as Candle[]);
     const current = enriched[enriched.length - 1];
+    if (!current) return;
     
     // NY Close Time Check
     const time = current.date.split('T')[1];
