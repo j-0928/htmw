@@ -146,8 +146,9 @@ export async function fetchIntradayData(symbol: string, range: string = '1mo', i
     let attempt = 0;
     while (attempt <= retries) {
         try {
+            const p1 = range.endsWith('d') ? new Date(Date.now() - parseInt(range) * 24 * 60 * 60 * 1000) : range;
             const result = (await yahooFinance.chart(symbol, {
-                period1: range, 
+                period1: p1,
                 interval: interval as any
             })) as any;
 
