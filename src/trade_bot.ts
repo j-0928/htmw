@@ -14,7 +14,8 @@ import { watchlist as watchlistTable } from './db/schema.js';
 
 // --- CONFIG ---
 const VOLATILE_TICKERS = ["LBTYB","DAWN","AAOI","AXTI","SOC","BW","HIMS","SMX","RCAT","EOSE","CTMX","UMAC","SLDB","ASTI","PL","VIR","CRCL","VG","NUAI","SGML","AMPX","ARRY","ALM","HYMC","IBRX","LITE","NUVB","MDB","PDYN","FLY","UAMY","LUNR","GEMI","CSIQ","TTD","EAF","SMCI","NTSK","ASST","FIGR","ACHC","NVTS","ONDS","NBIS","TE","SEDG","OSS","RDW","BTDR","MARA","BE","PLSE","SHLS","AEVA","DNA","POET","OUST","SEI","WULF","FSLY"];
-const MAX_POS_PCT = 0.24; 
+const MAX_POS_PCT = 0.25; 
+const MAX_OPEN_TRADES = 4;
 // --------------
 
 interface Position {
@@ -99,21 +100,26 @@ export async function runTradeBot(api: ApiClient, afterHours: boolean = false): 
     }
 
     // 3. Scan for New Signals (Use Dynamic Watchlist)
-    if (dbOpenTrades.length < 4) {
+    if (dbOpenTrades.length < MAX_OPEN_TRADES) {
+        const slotsAvailable = MAX_OPEN_TRADES - dbOpenTrades.length;
         const dbWatchlist = await db.select().from(watchlistTable).orderBy(desc(watchlistTable.score)).limit(60);
         const activeWatchlist = dbWatchlist.length > 0 ? dbWatchlist.map(w => w.symbol) : VOLATILE_TICKERS;
         
-        log(`🔎 Scanning ${activeWatchlist.length} Tickers for Lightning Branch entries...`);
+        log(`🔎 Scanning ${activeWatchlist.length} Tickers [Slots: ${slotsAvailable}] for 25% Alpha entries...`);
         const livePortValue = (portfolioPositions.length > 0 || cashAvailable > 0) ? (portfolioPositions.reduce((s,p) => s + (p.marketValue || 0), 0) + cashAvailable) : 100000;
         const amountPerTrade = livePortValue * MAX_POS_PCT;
-        log(`📈 Dynamic Scaling: Investing $${amountPerTrade.toFixed(2)} per position (24% of $${livePortValue.toFixed(2)})`);
+        log(`📈 Institutional Scaling: Investing $${amountPerTrade.toFixed(2)} per position (25% of $${livePortValue.toFixed(2)})`);
 
+        let tradesExecutedThisCycle = 0;
         for (const symbol of activeWatchlist) {
             if (heldSymbols.has(symbol)) continue;
             const signal = await checkSetup(symbol, log);
             if (signal) {
                 const success = await triggerTrade(api, symbol, signal, amountPerTrade, log);
-                if (success) break; 
+                if (success) {
+                    tradesExecutedThisCycle++;
+                    if (tradesExecutedThisCycle >= slotsAvailable) break; 
+                }
             }
         }
     }
