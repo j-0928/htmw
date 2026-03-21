@@ -103,7 +103,7 @@ export async function fetchHistoricalData(symbol: string, start: string, end: st
         saveToCache(symbol, 'hist', `${start}_${end}`, finalData);
         return finalData;
     } catch (e) {
-        console.error(`❌ Yahoo Hist Error [${symbol}]:`, e);
+        console.error(`🚨 Yahoo Hist Error [${symbol}]:`, e);
         return { symbol, data: [] };
     }
 }
@@ -131,7 +131,7 @@ export async function fetchIntradayData(symbol: string, range: string = '1mo', i
 
     if (requestCount % BATCH_SIZE === 0) {
         waitTime = COOL_DOWN;
-        console.error(`🛡️ BATCH LIMIT REACHED. Cooling down ${COOL_DOWN}ms...`);
+        console.error(`🚨 BATCH LIMIT REACHED. Cooling down ${COOL_DOWN}ms...`);
     } else {
         waitTime = Math.max(0, BASE_DELAY - (now - lastRequestTime));
     }
@@ -180,12 +180,12 @@ export async function fetchIntradayData(symbol: string, range: string = '1mo', i
             if (is429) {
                 globalDelayAddon += 10000;
                 const backoff = Math.pow(2, attempt) * 15000;
-                console.warn(`🛑 YAHOO THROTTLED [${symbol}]. Global Penalty: ${globalDelayAddon}ms. Backing off ${backoff}ms...`);
+                console.warn(`🚨🚨 YAHOO THROTTLED [${symbol}]. Global Penalty: ${globalDelayAddon}ms. Backing off ${backoff}ms...`);
                 await new Promise(r => setTimeout(r, backoff));
                 if (attempt <= retries) continue;
             }
             
-            console.error(`❌ Yahoo API Error [${symbol}]: ${message}`);
+            console.error(`🚨 Yahoo API Error [${symbol}]: ${message}`);
             if (attempt > retries) break;
         }
     }

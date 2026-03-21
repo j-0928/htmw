@@ -416,7 +416,8 @@ app.get('/sse', (req, res) => res.redirect('/mcp'));
 const PORT = process.env.PORT || 3000;
 
 // --- Market Hours State Machine ---
-function isMarketOpen() {
+type MarketState = 'REGULAR' | 'PRE' | 'POST' | 'CLOSED';
+function getMarketState(): MarketState {
     const formatter = new Intl.DateTimeFormat('en-US', {
         timeZone: 'America/New_York',
         hour12: false,
@@ -431,11 +432,21 @@ function isMarketOpen() {
     const weekday = getPart('weekday');
     const hour = parseInt(getPart('hour')) || 0;
     const min = parseInt(getPart('minute')) || 0;
+    const totalMin = hour * 60 + min;
 
     const isWeekend = weekday === 'Sat' || weekday === 'Sun';
-    const isMarketHours = (hour > 9 || (hour === 9 && min >= 30)) && (hour < 16);
+    if (isWeekend) return 'CLOSED';
+
+    // Regular Market: 9:30 AM - 4:00 PM ET
+    if (totalMin >= 9.5 * 60 && totalMin < 16 * 60) return 'REGULAR';
     
-    return !isWeekend && isMarketHours;
+    // Pre-Market: 4:00 AM - 9:30 AM ET
+    if (totalMin >= 4 * 60 && totalMin < 9.5 * 60) return 'PRE';
+    
+    // Post-Market: 4:00 PM - 8:00 PM ET
+    if (totalMin >= 16 * 60 && totalMin < 20 * 60) return 'POST';
+    
+    return 'CLOSED';
 }
 
 // --- Dynamic Watchlist & Loop ---
@@ -444,29 +455,44 @@ async function startBotLoop() {
     if (isExecuting) return;
     isExecuting = true;
     const start = Date.now();
+    let nextDelay = 5 * 60 * 1000; // Default 5 min
+
     try {
-        const open = isMarketOpen();
-        if (open) {
+        const state = getMarketState();
+        
+        if (state === 'REGULAR') {
             addBotLog('🚀 [MARKET OPEN] Starting Elite Sniper trading cycle...');
             const output = await runTradeBot(api);
             output.split('\n').filter(l => l.trim()).forEach(l => addBotLog(l));
+            nextDelay = 5 * 60 * 1000; // Trade every 5 mins
         } else {
-            addBotLog('🌙 [AFTER HOURS] Starting Alpha Discovery scan...');
-            // We only run AH analysis once per hour
-            const etHour = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: false });
-            addBotLog(`🔎 Performing Lightning Branch simulation for ${etHour}:00 ET...`);
+            const label = state === 'PRE' ? 'PRE-MARKET' : state === 'POST' ? 'POST-MARKET' : 'CLOSED';
+            const logMsg = state === 'CLOSED' ? 
+                `🌙 [CLOSED] Maintenance scan starting...` : 
+                `🌅 [${label}] Alpha Discovery cycle starting...`;
+            
+            addBotLog(logMsg);
             const output = await runTradeBot(api, true); // true = after-hours mode
             output.split('\n').filter(l => l.trim()).forEach(l => addBotLog(l));
+            
+            // Interval Adjustment (Per user request)
+            if (state === 'PRE' || state === 'POST') {
+                nextDelay = 15 * 60 * 1000; // 15 mins during active pre/post
+            } else {
+                nextDelay = 60 * 60 * 1000; // 60 mins during deep night
+            }
         }
         
         lastRunTime = new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' });
         lastRunDuration = `${((Date.now() - start) / 1000).toFixed(1)}s`;
-        console.error(`✅ Cycle completed in ${lastRunDuration}. (Precision: ${Date.now() - start}ms)`);
-        addBotLog(`✅ Cycle completed in ${lastRunDuration}.`);
+        console.error(`✅ Cycle completed in ${lastRunDuration}. Next run in ${nextDelay / 1000 / 60}m. (Precision: ${Date.now() - start}ms)`);
+        addBotLog(`✅ Cycle completed. Next run in ${nextDelay / 1000 / 60}m.`);
     } catch (e) {
         addBotLog(`❌ Error: ${e}`);
     } finally {
         isExecuting = false;
+        // Schedule next run
+        setTimeout(startBotLoop, nextDelay);
     }
 }
 
@@ -482,9 +508,8 @@ auth.login().then(async () => {
         console.error(`📊 Dashboard available at http://localhost:${PORT}/`);
     });
 
-    // Start the Always-On Sniper (5 min interval)
-    startBotLoop(); // Initial run
-    setInterval(startBotLoop, 5 * 60 * 1000); 
+    // Start the Always-On Sniper (Market-Aware Intervals)
+    startBotLoop(); 
 
 }).catch(err => {
     console.error('Critical Failure: Could not initial-login to HTMW:', err);
