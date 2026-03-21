@@ -15,7 +15,7 @@ import { watchlist as watchlistTable } from './db/schema.js';
 // --- CONFIG ---
 const VOLATILE_TICKERS = ["LBTYB","DAWN","AAOI","AXTI","SOC","BW","HIMS","SMX","RCAT","EOSE","CTMX","UMAC","SLDB","ASTI","PL","VIR","CRCL","VG","NUAI","SGML","AMPX","ARRY","ALM","HYMC","IBRX","LITE","NUVB","MDB","PDYN","FLY","UAMY","LUNR","GEMI","CSIQ","TTD","EAF","SMCI","NTSK","ASST","FIGR","ACHC","NVTS","ONDS","NBIS","TE","SEDG","OSS","RDW","BTDR","MARA","BE","PLSE","SHLS","AEVA","DNA","POET","OUST","SEI","WULF","FSLY"];
 const MAX_POS_PCT = 0.25; 
-const MAX_OPEN_TRADES = 4;
+const MAX_OPEN_TRADES = 10;
 // --------------
 
 interface Position {
@@ -103,16 +103,25 @@ export async function runTradeBot(api: ApiClient, afterHours: boolean = false): 
     if (dbOpenTrades.length < MAX_OPEN_TRADES) {
         const slotsAvailable = MAX_OPEN_TRADES - dbOpenTrades.length;
         const dbWatchlist = await db.select().from(watchlistTable).orderBy(desc(watchlistTable.score)).limit(60);
-        const activeWatchlist = dbWatchlist.length > 0 ? dbWatchlist.map(w => w.symbol) : VOLATILE_TICKERS;
         
-        log(`🔎 Scanning ${activeWatchlist.length} Tickers [Slots: ${slotsAvailable}] for 25% Alpha entries...`);
+        log(`🔎 Scanning ${dbWatchlist.length || VOLATILE_TICKERS.length} Tickers [Slots: ${slotsAvailable}] for Conviction-Based entries...`);
         const livePortValue = (portfolioPositions.length > 0 || cashAvailable > 0) ? (portfolioPositions.reduce((s,p) => s + (p.marketValue || 0), 0) + cashAvailable) : 100000;
-        const amountPerTrade = livePortValue * MAX_POS_PCT;
-        log(`📈 Institutional Scaling: Investing $${amountPerTrade.toFixed(2)} per position (25% of $${livePortValue.toFixed(2)})`);
+        
+        const candidates = dbWatchlist.length > 0 
+            ? dbWatchlist.map(w => ({ symbol: w.symbol, score: w.score }))
+            : VOLATILE_TICKERS.map(s => ({ symbol: s, score: 100 })); // Default 100 for volatile list
 
         let tradesExecutedThisCycle = 0;
-        for (const symbol of activeWatchlist) {
-            if (heldSymbols.has(symbol)) continue;
+        for (const entry of candidates) {
+            const { symbol, score } = entry;
+            if (heldSymbols.has(symbol.toUpperCase())) continue;
+            
+            // Conviction-Based Sizing: Size = (NAV * 0.25) * (Score / 100)
+            const symbolCap = livePortValue * MAX_POS_PCT;
+            const amountPerTrade = symbolCap * (score / 100);
+            
+            log(`📈 Conviction Scaling [${symbol}]: Investing $${amountPerTrade.toFixed(2)} (Score: ${score} | Cap: $${symbolCap.toFixed(2)})`);
+
             const signal = await checkSetup(symbol, log);
             if (signal) {
                 const success = await triggerTrade(api, symbol, signal, amountPerTrade, log);
