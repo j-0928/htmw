@@ -16,6 +16,11 @@ const BATCH_SIZE = 10;
 const COOL_DOWN = 5000; // 5s Cool down every BATCH_SIZE
 const BASE_DELAY = 1000; // 1s between individual requests
 
+// Alpha Vantage Institutional Config
+const AV_KEYS = (process.env.ALPHA_VANTAGE_KEYS || '').split(',').map(k => k.trim()).filter(k => k);
+let avKeyIndex = 0;
+let avLastRequestMap = new Map<string, number>(); // Per key timestamp
+
 const CACHE_DIR = path.resolve('backtest_cache');
 if (!fs.existsSync(CACHE_DIR)) {
     fs.mkdirSync(CACHE_DIR);
@@ -81,7 +86,21 @@ export async function fetchHistoricalData(symbol: string, start: string, end: st
         }
     } catch (e) {}
 
-    // --- PHASE 2: YAHOO FINANCE (DEEP BRAIN) ---
+    // --- PHASE 2: ALPHA VANTAGE (RELIABILITY LAYER) ---
+    if (AV_KEYS.length > 0) {
+        try {
+            const result = await fetchAlphaVantage(symbol, 'TIME_SERIES_DAILY');
+            if (result && result.length > 0) {
+                const finalData = { symbol, data: result };
+                saveToCache(symbol, 'hist', `${start}_${end}`, finalData);
+                return finalData;
+            }
+        } catch (e) {
+            console.error(`🚨 Alpha Vantage Hist Error [${symbol}]:`, e);
+        }
+    }
+
+    // --- PHASE 3: YAHOO FINANCE (DEEP BRAIN) ---
     try {
         const result = await yahooFinance.historical(symbol, {
             period1: start,
@@ -108,6 +127,50 @@ export async function fetchHistoricalData(symbol: string, start: string, end: st
     }
 }
 
+/**
+ * ALPHA VANTAGE BRIDGE: Multi-Key Rotation + Rate Pacing
+ */
+async function fetchAlphaVantage(symbol: string, func: string): Promise<OHLCV[]> {
+    if (AV_KEYS.length === 0) return [];
+
+    const key = AV_KEYS[avKeyIndex % AV_KEYS.length];
+    avKeyIndex++;
+
+    // Pacing: Alpha Vantage free keys allow 5 requests per minute (12s spacing)
+    const lastReq = avLastRequestMap.get(key) || 0;
+    const timeSince = Date.now() - lastReq;
+    if (timeSince < 12000) {
+        await new Promise(r => setTimeout(r, 12000 - timeSince));
+    }
+
+    try {
+        const url = `https://www.alphavantage.co/query?function=${func}&symbol=${symbol}&apikey=${key}&outputsize=compact`;
+        const resp = await axios.get(url, { httpsAgent });
+        avLastRequestMap.set(key, Date.now());
+
+        const data = resp.data;
+        if (data['Note'] || data['Information']) {
+             console.warn(`🚨 Alpha Vantage Rate Limit [Key ${avKeyIndex % AV_KEYS.length}]`);
+             return [];
+        }
+
+        const timeSeries = data['Time Series (Daily)'] || data['Time Series (5min)'];
+        if (!timeSeries) return [];
+
+        return Object.entries(timeSeries).map(([date, vals]: [string, any]) => ({
+            date: new Date(date).toISOString(),
+            open: parseFloat(vals['1. open']),
+            high: parseFloat(vals['2. high']),
+            low: parseFloat(vals['3. low']),
+            close: parseFloat(vals['4. close']),
+            volume: parseFloat(vals['5. volume']),
+            adjClose: parseFloat(vals['4. close'])
+        })).reverse();
+    } catch (e) {
+        return [];
+    }
+}
+
 // Note: yahoo-finance2 handles session/crumb management internally
 
 export async function fetchIntradayData(symbol: string, range: string = '1mo', interval: string = '5m', retries: number = 2): Promise<HistoricalData> {
@@ -123,7 +186,22 @@ export async function fetchIntradayData(symbol: string, range: string = '1mo', i
         }
     } catch (e) {}
 
-    // --- PHASE 2: YAHOO FINANCE (DEEP BRAIN) ---
+    // --- PHASE 2: ALPHA VANTAGE (RELIABILITY LAYER) ---
+    if (AV_KEYS.length > 0) {
+        try {
+            const func = interval === '1d' ? 'TIME_SERIES_DAILY' : 'TIME_SERIES_INTRADAY';
+            const result = await fetchAlphaVantage(symbol, func);
+            if (result && result.length > 0) {
+                const finalData = { symbol, data: result };
+                saveToCache(symbol, 'intraday', cacheKey, finalData);
+                return finalData;
+            }
+        } catch (e) {
+             console.error(`🚨 Alpha Vantage Intraday Error [${symbol}]:`, e);
+        }
+    }
+
+    // --- PHASE 3: YAHOO FINANCE (DEEP BRAIN) ---
     // Hardening Strategy: Cluster Bursting + Cool Down
     requestCount++;
     const now = Date.now();
