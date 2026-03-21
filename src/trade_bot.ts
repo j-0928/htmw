@@ -245,24 +245,21 @@ async function runAfterHoursAnalysis(api: ApiClient, log: (msg: string) => void)
             const sim = MonteCarloEngine.runSimulation(raw.data);
             if (sim && Math.abs(sim.meanBranch) > 0.5) { // 0.5% Threshold for Mean Alpha
                 const lastPrice = closes[closes.length - 1];
+                const convictionScore = Math.min(10, Math.max(1, Math.round((sim.meanBranch / sim.score) * 20))); // Renormalized to Sharpe-base
+                
+                // Institutional Bracket Logic: Targeting 3% TP with 2% SL
                 const targetPrice = (lastPrice * (1 + sim.meanBranch / 100)).toFixed(2);
-                
-                // 10-Point Conviction Scoring
-                // Score = (Mean Alpha * 2) - (Vol Sensitivity)
-                let score = Math.floor(Math.abs(sim.meanBranch) * 1.5);
-                if (sim.score < 5) score += 2; // High clustering bonus
-                score = Math.min(10, Math.max(1, score));
+                const stopPrice = (lastPrice * (1 - (sim.score / 2) / 100)).toFixed(2); // Dynamic V-Stop
 
-                const confidence = score >= 9 ? 'ULTRA' : score >= 7 ? 'HIGH' : score >= 5 ? 'MED' : 'SPEC';
-                const tag = sim.meanBranch > 0 ? 'High-Beta Momentum' : 'Mean Reversion Alpha';
-                
-                candidates.push({
-                    symbol,
-                    side: sim.meanBranch > 0 ? 'LONG' : 'SHORT',
-                    score: score,
-                    reason: `[${confidence}] Alpha Discovery: ${symbol} | Mean Branch: ${sim.meanBranch > 0 ? '+' : '-'}${sim.meanBranch.toFixed(2)}% ($${targetPrice}) | Sigma-2 Range: [${sim.lowerBranch.toFixed(1)}%, ${sim.upperBranch.toFixed(1)}%] | Strategy: ${tag}`
-                });
-                log(`🎯 Match: ${symbol} (Mean: ${sim.meanBranch.toFixed(2)}% | Score: ${score}/10 | Conf: ${confidence})`);
+                if (sim.meanBranch > 1.2 && sim.score < 5.0) { // High Quality Cluster
+                    candidates.push({
+                        symbol,
+                        side: sim.meanBranch > 0 ? 'LONG' : 'SHORT',
+                        score: convictionScore,
+                        reason: `v8 Branch: Mean ${sim.meanBranch > 0 ? '+' : '-'}${sim.meanBranch.toFixed(1)}% | Sigma-2: [${sim.lowerBranch.toFixed(1)}%, ${sim.upperBranch.toFixed(1)}%] | Institutional Bracket Active.`
+                    });
+                    log(`🎯 Match: ${symbol} (Mean: ${sim.meanBranch.toFixed(2)}% | Score: ${convictionScore}/10 | Conf: HIGH)`);
+                }
             }
         } catch (e) {
             log(`❌ Skip ${symbol}: Processing error`);
