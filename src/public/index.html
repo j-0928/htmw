@@ -160,6 +160,27 @@
             </section>
         </div>
 
+        <!-- LIGHTNING WATCHLIST -->
+        <section class="panel" style="margin-bottom:2rem;">
+            <h2>Lightning Branch Watchlist <span class="badge" id="watch-count">0</span></h2>
+            <div id="watchlist-container">
+                <table style="margin-top:0;">
+                    <thead>
+                        <tr>
+                            <th>Ticker</th>
+                            <th>Bias</th>
+                            <th>Conviction</th>
+                            <th>Reasoning</th>
+                            <th>Discovery Time</th>
+                        </tr>
+                    </thead>
+                    <tbody id="watch-body">
+                        <tr><td colspan="5" style="text-align:center; color:rgba(255,255,255,0.2); padding:3rem;">Scanner active. Awaiting Alpha Discovery...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
         <!-- DEBUG CONSOLE -->
         <section class="panel" style="margin-top:2rem;">
             <h2>Live Alpha Console <span class="badge">Real-time Stream</span></h2>
@@ -227,6 +248,26 @@
             } catch (e) { console.error('Stats API Error:', e); }
         }
 
+        async function refreshWatchlist() {
+            try {
+                const res = await fetch('/api/watchlist');
+                const list = await res.json();
+                document.getElementById('watch-count').innerText = list.length;
+                if (list.length > 0) {
+                    const body = document.getElementById('watch-body');
+                    body.innerHTML = list.map(item => `
+                        <tr>
+                            <td class="symbol">${item.symbol}</td>
+                            <td><span class="side-tag ${item.side.toLowerCase()}">${item.side}</span></td>
+                            <td style="color:var(--accent); font-family:'Orbitron';">${item.score}/6</td>
+                            <td style="font-size:0.8rem; color:rgba(255,255,255,0.6);">${item.reason || '-'}</td>
+                            <td style="font-size:0.75rem; color:rgba(255,255,255,0.4);">${new Date(item.discoveryTime).toLocaleTimeString()}</td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (e) { console.error('Watchlist API Error:', e); }
+        }
+
         async function refreshLogs() {
             try {
                 const res = await fetch('/api/logs');
@@ -250,8 +291,10 @@
 
         setInterval(refreshData, 5000);
         setInterval(refreshLogs, 2000);
+        setInterval(refreshWatchlist, 10000);
         refreshData();
         refreshLogs();
+        refreshWatchlist();
     </script>
 </body>
 </html>

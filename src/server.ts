@@ -290,6 +290,15 @@ app.use(express.json());
 app.use(express.static(path.join(process.cwd(), 'src/public'))); 
 
 // --- DASHBOARD API ---
+app.get('/api/watchlist', async (req, res) => {
+    try {
+        const list = await db.select().from(watchlist).orderBy(desc(watchlist.discoveryTime));
+        res.json(list);
+    } catch (e) {
+        res.status(500).json({ error: String(e) });
+    }
+});
+
 app.get('/api/stats', async (req, res) => {
     try {
         const startTime = performance.now();

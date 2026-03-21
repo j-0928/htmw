@@ -87,38 +87,90 @@ export async function fetchHistoricalData(symbol: string, start: string, end: st
     }
 }
 
-export async function fetchIntradayData(symbol: string, range: string = '1mo', interval: string = '5m'): Promise<HistoricalData> {
+const USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+];
+
+let sessionCookie: string | null = null;
+let lastSessionFetch = 0;
+
+async function refreshYahooSession() {
+    if (sessionCookie && (Date.now() - lastSessionFetch < 3600000)) return; // 1hr cache
+    try {
+        const resp = await axios.get('https://finance.yahoo.com', {
+            headers: { 'User-Agent': USER_AGENTS[0] },
+            httpsAgent
+        });
+        const cookies = resp.headers['set-cookie'];
+        if (cookies) {
+            sessionCookie = cookies.map(c => c.split(';')[0]).join('; ');
+            lastSessionFetch = Date.now();
+            console.log('✅ Yahoo Session Refreshed (Cookie obtained)');
+        }
+    } catch (e) {
+        console.warn('⚠️ Failed to refresh Yahoo session, proceeding without cookies');
+    }
+}
+
+export async function fetchIntradayData(symbol: string, range: string = '1mo', interval: string = '5m', retries: number = 3): Promise<HistoricalData> {
     const cache = getFromCache(symbol, 'intraday', `${range}_${interval}`, 60); // 60s TTL for live
     if (cache) return cache;
 
-    // Institutional Throttler (Avoid hitting Yahoo too fast / Mitigate WAF)
-    await new Promise(r => setTimeout(r, 300 + Math.random() * 300)); 
+    await refreshYahooSession();
 
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}`;
-    
-    try {
-        const resp = await axios.get(url, { httpsAgent });
-        const result = resp.data.chart.result[0];
-        const timestamps = result.timestamp;
-        const quote = result.indicators.quote[0];
-        
-        const data: OHLCV[] = timestamps.map((ts: number, i: number) => ({
-            date: new Date(ts * 1000).toISOString(),
-            open: quote.open[i],
-            high: quote.high[i],
-            low: quote.low[i],
-            close: quote.close[i],
-            volume: quote.volume[i],
-            adjClose: quote.close[i]
-        })).filter((d: OHLCV) => d.open !== null);
+    let attempt = 0;
+    while (attempt <= retries) {
+        // Institutional Jitter (2s base + random)
+        await new Promise(r => setTimeout(r, 2000 + Math.random() * 1000)); 
 
-        const finalData = { symbol, data };
-        saveToCache(symbol, 'intraday', `${range}_${interval}`, finalData);
-        return finalData;
-    } catch (e) {
-        console.error(`❌ Yahoo API Error [${symbol}]: ${e instanceof Error ? e.message : String(e)}`);
-        return { symbol, data: [] };
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}`;
+        const ua = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+
+        try {
+            const resp = await axios.get(url, { 
+                httpsAgent,
+                headers: { 
+                    'User-Agent': ua,
+                    'Cookie': sessionCookie || '',
+                    'Referer': 'https://finance.yahoo.com/quote/' + symbol,
+                    'Origin': 'https://finance.yahoo.com'
+                }
+            });
+            
+            const result = resp.data.chart.result[0];
+            const timestamps = result.timestamp;
+            const quote = result.indicators.quote[0];
+            
+            const data: OHLCV[] = timestamps.map((ts: number, i: number) => ({
+                date: new Date(ts * 1000).toISOString(),
+                open: quote.open[i],
+                high: quote.high[i],
+                low: quote.low[i],
+                close: quote.close[i],
+                volume: quote.volume[i],
+                adjClose: quote.close[i]
+            })).filter((d: OHLCV) => d.open !== null);
+
+            const finalData = { symbol, data };
+            saveToCache(symbol, 'intraday', `${range}_${interval}`, finalData);
+            return finalData;
+        } catch (e: any) {
+            if (e.response?.status === 429 || e.response?.status === 403) {
+                attempt++;
+                const backoff = Math.pow(2, attempt) * 3000;
+                console.warn(`⚠️ Yahoo Blocked [${symbol}] Status: ${e.response?.status}. Backing off ${backoff}ms... (Attempt ${attempt}/${retries})`);
+                sessionCookie = null; // Clear cookie on failure to trigger refresh
+                await new Promise(r => setTimeout(r, backoff));
+                await refreshYahooSession();
+                continue; 
+            }
+            console.error(`❌ Yahoo API Error [${symbol}]: ${e instanceof Error ? e.message : String(e)}`);
+            break; 
+        }
     }
+    return { symbol, data: [] };
 }
 
 /**

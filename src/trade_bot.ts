@@ -131,28 +131,38 @@ async function runAfterHoursAnalysis(api: ApiClient, log: (msg: string) => void)
     
     const candidates: { symbol: string, side: string, score: number, reason: string }[] = [];
     
-    for (const symbol of universe) {
-        const raw = await fetchIntradayData(symbol, '5d', '15m');
-        if (!raw.data || raw.data.length < 50) continue;
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < universe.length; i += BATCH_SIZE) {
+        const batch = universe.slice(i, i + BATCH_SIZE);
+        log(`Processing batch ${i / BATCH_SIZE + 1}/${Math.ceil(universe.length / BATCH_SIZE)}...`);
         
-        // Institutional Branch Check (Relative Volatility + Trend)
-        const closes = raw.data.map(d => d.close);
-        const meanPrice = closes.slice(-20).reduce((p, c) => p + c) / 20;
-        const vol = Math.sqrt(closes.slice(-20).reduce((s, x) => s + Math.pow(x - meanPrice, 2), 0) / 20);
-        const trend = closes[closes.length - 1] - closes[closes.length - 20];
-        
-        const relativeVol = vol / meanPrice;
+        const promises = batch.map(async (symbol) => {
+            const raw = await fetchIntradayData(symbol, '5d', '15m');
+            if (!raw.data || raw.data.length < 50) return;
+            
+            // Institutional Branch Check (Relative Volatility + Trend)
+            const closes = raw.data.map(d => d.close);
+            const meanPrice = closes.slice(-20).reduce((p, c) => p + c) / 20;
+            const vol = Math.sqrt(closes.slice(-20).reduce((s, x) => s + Math.pow(x - meanPrice, 2), 0) / 20);
+            const trend = closes[closes.length - 1] - closes[closes.length - 20];
+            
+            const relativeVol = vol / meanPrice;
 
-        if (relativeVol > 0.005) { // 0.5% Relative Volatility Threshold
-            candidates.push({
-                symbol,
-                side: trend > 0 ? 'LONG' : 'SHORT',
-                score: Math.min(6, Math.floor(relativeVol * 400)), // Scale score to 0-6
-                reason: 'After-Hours Alpha branches confirmed'
-            });
-            log(`🎯 Match: ${symbol} (Vol: ${(relativeVol * 100).toFixed(2)}% | Trend: ${trend.toFixed(2)})`);
-        } else {
-            // log(`💨 Insufficient: ${symbol} (Vol: ${(relativeVol * 100).toFixed(2)}%)`);
+            if (relativeVol > 0.005) { // 0.5% Relative Volatility Threshold
+                candidates.push({
+                    symbol,
+                    side: trend > 0 ? 'LONG' : 'SHORT',
+                    score: Math.min(6, Math.floor(relativeVol * 400)), // Scale score to 0-6
+                    reason: 'After-Hours Alpha branches confirmed'
+                });
+                log(`🎯 Match: ${symbol} (Vol: ${(relativeVol * 100).toFixed(2)}% | Trend: ${trend.toFixed(2)})`);
+            }
+        });
+
+        await Promise.all(promises);
+        if (i + BATCH_SIZE < universe.length) {
+            // Cool-down between batches to reset Yahoo connection pool
+            await new Promise(r => setTimeout(r, 2000));
         }
     }
     
