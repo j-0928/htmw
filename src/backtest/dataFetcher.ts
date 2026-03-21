@@ -148,8 +148,7 @@ export async function fetchIntradayData(symbol: string, range: string = '1mo', i
         try {
             const result = (await yahooFinance.chart(symbol, {
                 period1: range, 
-                interval: interval as any,
-                includeTimestamp: true
+                interval: interval as any
             })) as any;
 
             lastRequestTime = Date.now();
