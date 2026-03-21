@@ -223,9 +223,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
                     required: [],
                 },
             },
-        ],
-    };
-});
+                    {
+                        name: 'get_watchlist',
+                        description: 'Get the list of Alpha candidates prepped for the next Market Open (After-Hours/Pre-Market Discovery).',
+                        inputSchema: { type: 'object', properties: {}, required: [] },
+                    },
+                ],
+            };
+        });
 
 // Handle tools (Synchronized with index.ts)
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -277,6 +282,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             case 'get_signals':
                 const sigs = await db.select().from(signals).orderBy(desc(signals.timestamp)).limit((args as any).limit || 20);
                 return { content: [{ type: 'text', text: JSON.stringify(sigs, null, 2) }] };
+            case 'get_watchlist':
+                const watch = await db.select().from(watchlist).orderBy(desc(watchlist.discoveryTime));
+                return { content: [{ type: 'text', text: JSON.stringify(watch, null, 2) }] };
             default:
                 throw new Error(`Unknown tool: ${name}`);
         }
