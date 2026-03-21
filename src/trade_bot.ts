@@ -163,13 +163,17 @@ async function runAfterHoursAnalysis(api: ApiClient, log: (msg: string) => void)
             const relativeVol = vol / meanPrice;
 
             if (relativeVol > 0.005) { // 0.5% Relative Volatility Threshold
+                const move = (relativeVol * 250).toFixed(1); // Projected Move %
+                const duration = relativeVol > 0.015 ? '1-3 Day Runner' : '1-Week Accumulation';
+                const tag = trend > 0 ? 'High-Beta Momentum' : 'Mean Reversion Alpha';
+                
                 candidates.push({
                     symbol,
                     side: trend > 0 ? 'LONG' : 'SHORT',
                     score: Math.min(6, Math.floor(relativeVol * 400)), // Scale score to 0-6
-                    reason: 'After-Hours Alpha branches confirmed'
+                    reason: `${trend > 0 ? '+' : '-'}${move}% projected voltality branch. ${duration}. ${tag}.`
                 });
-                log(`🎯 Match: ${symbol} (Vol: ${(relativeVol * 100).toFixed(2)}% | Trend: ${trend.toFixed(2)})`);
+                log(`🎯 Match: ${symbol} (Vol: ${(relativeVol * 100).toFixed(2)}% | Move: ${move}% | ${duration})`);
             }
         } catch (e) {
             log(`❌ Skip ${symbol}: Processing error`);
