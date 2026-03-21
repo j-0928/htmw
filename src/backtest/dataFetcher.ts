@@ -20,6 +20,7 @@ const BASE_DELAY = 1000; // 1s between individual requests
 const AV_KEYS = (process.env.ALPHA_VANTAGE_KEYS || '').split(',').map(k => k.trim()).filter(k => k);
 let avKeyIndex = 0;
 let avLastRequestMap = new Map<string, number>(); // Per key timestamp
+console.error(`📡 Alpha Vantage Bridge: Active (${AV_KEYS.length} keys loaded)`);
 
 const CACHE_DIR = path.resolve('backtest_cache');
 if (!fs.existsSync(CACHE_DIR)) {
