@@ -2,7 +2,8 @@ import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
-import yahooFinance from 'yahoo-finance2';
+import YahooFinance from 'yahoo-finance2';
+const yahooFinance = new (YahooFinance as any)();
 
 import { getScreenerData } from '../tools/screener.js';
 import { getStockLookup } from '../tools/tradingview.js';
