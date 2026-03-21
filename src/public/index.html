@@ -169,14 +169,17 @@
                         <tr>
                             <th>Ticker</th>
                             <th>Bias</th>
-                            <th>Conviction</th>
-                            <th>High-Precision Reasoning</th>
+                            <th>Confidence</th>
+                            <th>Statistical Branch Reasoning</th>
                             <th>Discovery Time</th>
                         </tr>
                     </thead>
                     <tbody id="alpha-body">
                     </tbody>
                 </table>
+                <div id="alpha-more" style="text-align:center; padding:1rem; cursor:pointer; color:var(--accent); font-size:0.8rem; display:none;" onclick="toggleAlpha()">
+                    VIEW ALL ALPHA CANDIDATES ▽
+                </div>
             </div>
         </section>
 
@@ -197,6 +200,9 @@
                     <tbody id="orb-body">
                     </tbody>
                 </table>
+                <div id="orb-more" style="text-align:center; padding:1rem; cursor:pointer; color:var(--secondary); font-size:0.8rem; display:none;" onclick="toggleOrb()">
+                    VIEW ALL ORB CANDIDATES ▽
+                </div>
             </div>
         </section>
 
@@ -282,7 +288,7 @@
                     <tr>
                         <td class="symbol">${item.symbol}</td>
                         <td><span class="side-tag ${item.side.toLowerCase()}">${item.side}</span></td>
-                        <td style="color:var(--accent); font-family:'Orbitron';">${item.score}/6</td>
+                        <td style="color:var(--accent); font-family:'Orbitron';">${item.score}/10</td>
                         <td style="font-size:0.8rem; color:rgba(255,255,255,0.7);">${item.reason || '-'}</td>
                         <td style="font-size:0.75rem; color:rgba(255,255,255,0.4);">${new Date(item.discoveryTime).toLocaleTimeString()}</td>
                     </tr>
@@ -292,14 +298,29 @@
                     <tr>
                         <td class="symbol">${item.symbol}</td>
                         <td><span class="side-tag ${item.side.toLowerCase()}">${item.side}</span></td>
-                        <td style="color:var(--secondary); font-family:'Orbitron';">${item.score}/6</td>
+                        <td style="color:var(--secondary); font-family:'Orbitron';">${item.score}/10</td>
                         <td style="font-size:0.8rem; color:rgba(255,255,255,0.7);">${item.reason || '-'}</td>
                         <td style="font-size:0.75rem; color:rgba(255,255,255,0.4);">${new Date(item.discoveryTime).toLocaleTimeString()}</td>
                     </tr>
                 `;
                 
-                document.getElementById('alpha-body').innerHTML = alphaList.length > 0 ? alphaList.map(renderAlpha).join('') : '<tr><td colspan="5" style="text-align:center; padding:2rem; opacity:0.3;">Scanning After-Hours Universe...</td></tr>';
-                document.getElementById('orb-body').innerHTML = orbList.length > 0 ? orbList.map(renderOrb).join('') : '<tr><td colspan="5" style="text-align:center; padding:2rem; opacity:0.3;">Market Closed. ORB Scanner hibernating.</td></tr>';
+                let showAlpha = false;
+                let showOrb = false;
+
+                window.toggleAlpha = () => { showAlpha = !showAlpha; refreshWatchlist(); };
+                window.toggleOrb = () => { showOrb = !showOrb; refreshWatchlist(); };
+
+                const alphaDisplay = showAlpha ? alphaList : alphaList.slice(0, 10);
+                const orbDisplay = showOrb ? orbList : orbList.slice(0, 10);
+
+                document.getElementById('alpha-more').style.display = alphaList.length > 10 ? 'block' : 'none';
+                document.getElementById('alpha-more').innerText = showAlpha ? 'COLLAPSE ALPHA FEED △' : `VIEW ALL ${alphaList.length} ALPHA CANDIDATES ▽`;
+                
+                document.getElementById('orb-more').style.display = orbList.length > 10 ? 'block' : 'none';
+                document.getElementById('orb-more').innerText = showOrb ? 'COLLAPSE ORB FEED △' : `VIEW ALL ${orbList.length} ORB CANDIDATES ▽`;
+
+                document.getElementById('alpha-body').innerHTML = alphaDisplay.length > 0 ? alphaDisplay.map(renderAlpha).join('') : '<tr><td colspan="5" style="text-align:center; padding:2rem; opacity:0.3;">Scanning After-Hours Universe...</td></tr>';
+                document.getElementById('orb-body').innerHTML = orbDisplay.length > 0 ? orbDisplay.map(renderOrb).join('') : '<tr><td colspan="5" style="text-align:center; padding:2rem; opacity:0.3;">Market Closed. ORB Scanner hibernating.</td></tr>';
                 
             } catch (e) { console.error('Watchlist API Error:', e); }
         }

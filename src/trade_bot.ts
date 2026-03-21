@@ -2,6 +2,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fetchIntradayData } from './backtest/dataFetcher.js';
+import { MonteCarloEngine } from './backtest/quant_simulator_v4.js';
 import { getScreenerData } from './tools/screener.js';
 import { fileURLToPath } from 'url';
 import type { ApiClient } from './api.js';
@@ -239,32 +240,29 @@ async function runAfterHoursAnalysis(api: ApiClient, log: (msg: string) => void)
             const raw = await fetchIntradayData(symbol, '5d', '15m');
             if (!raw.data || raw.data.length < 50) continue;
             
-            // Institutional Branch Check (Relative Volatility + Trend)
             const closes = raw.data.map(d => d.close);
-            const meanPrice = closes.slice(-20).reduce((p, c) => p + c) / 20;
-            const vol = Math.sqrt(closes.slice(-20).reduce((s, x) => s + Math.pow(x - meanPrice, 2), 0) / 20);
-            const trend = closes[closes.length - 1] - closes[closes.length - 20];
-            
-            const relativeVol = vol / meanPrice;
-
-            if (relativeVol > 0.005) { // 0.5% Relative Volatility Threshold
-                const move = (relativeVol * 250).toFixed(1); // Projected Move %
-                const movePct = parseFloat(move) / 100;
+            // --- INSTITUTIONAL MONTE CARLO (LIGHTNING BRANCH) ---
+            const sim = MonteCarloEngine.runSimulation(raw.data);
+            if (sim && Math.abs(sim.meanBranch) > 0.5) { // 0.5% Threshold for Mean Alpha
                 const lastPrice = closes[closes.length - 1];
-                const targetPrice = (lastPrice * (1 + (trend > 0 ? movePct : -movePct))).toFixed(2);
+                const targetPrice = (lastPrice * (1 + sim.meanBranch / 100)).toFixed(2);
                 
-                const score = Math.min(6, Math.floor(relativeVol * 400));
-                const confidence = score >= 5 ? 'HIGH' : score >= 3 ? 'MED' : 'SPEC';
-                const duration = relativeVol > 0.015 ? '1-3 Day Runner' : '1-Week Accumulation';
-                const tag = trend > 0 ? 'High-Beta Momentum' : 'Mean Reversion Alpha';
+                // 10-Point Conviction Scoring
+                // Score = (Mean Alpha * 2) - (Vol Sensitivity)
+                let score = Math.floor(Math.abs(sim.meanBranch) * 1.5);
+                if (sim.score < 5) score += 2; // High clustering bonus
+                score = Math.min(10, Math.max(1, score));
+
+                const confidence = score >= 9 ? 'ULTRA' : score >= 7 ? 'HIGH' : score >= 5 ? 'MED' : 'SPEC';
+                const tag = sim.meanBranch > 0 ? 'High-Beta Momentum' : 'Mean Reversion Alpha';
                 
                 candidates.push({
                     symbol,
-                    side: trend > 0 ? 'LONG' : 'SHORT',
+                    side: sim.meanBranch > 0 ? 'LONG' : 'SHORT',
                     score: score,
-                    reason: `[${confidence}] Alpha Discovery: ${symbol} | Upper Branch: ${trend > 0 ? '+' : '-'}${move}% ($${targetPrice}) | Sigma-2 Volatility Profile | Strategy: ${tag}`
+                    reason: `[${confidence}] Alpha Discovery: ${symbol} | Mean Branch: ${sim.meanBranch > 0 ? '+' : '-'}${sim.meanBranch.toFixed(2)}% ($${targetPrice}) | Sigma-2 Range: [${sim.lowerBranch.toFixed(1)}%, ${sim.upperBranch.toFixed(1)}%] | Strategy: ${tag}`
                 });
-                log(`🎯 Match: ${symbol} (Vol: ${(relativeVol * 100).toFixed(2)}% | Score: ${score} | Conf: ${confidence})`);
+                log(`🎯 Match: ${symbol} (Mean: ${sim.meanBranch.toFixed(2)}% | Score: ${score}/10 | Conf: ${confidence})`);
             }
         } catch (e) {
             log(`❌ Skip ${symbol}: Processing error`);
