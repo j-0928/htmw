@@ -4,7 +4,7 @@ import path from 'path';
 import YahooFinance from 'yahoo-finance2';
 const yahooFinance = new YahooFinance();
 
-console.log('🚀 Super-Alpha Optimizer Starting...');
+console.log('🚀 Super-Alpha Leveraged Optimizer (90-Day MSTR/NVDA) Starting...');
 
 class MonteCarloEngine {
     static boxMuller() {
@@ -37,92 +37,67 @@ class MonteCarloEngine {
             finalReturns.push(Math.exp(logRetSum) - 1);
         }
         finalReturns.sort((a,b)=>a-b);
-        const ub = finalReturns[Math.floor(paths * 0.95)] * 100;
-        const lb = finalReturns[Math.floor(paths * 0.05)] * 100;
-        const avg = (finalReturns.reduce((a,b)=>a+b,0)/paths) * 100;
+        const ub = (finalReturns[Math.floor(paths * 0.95)] || 0) * 100;
+        const lb = (finalReturns[Math.floor(paths * 0.05)] || 0) * 100;
+        const avg = ((finalReturns.reduce((a,b)=>a+b,0)/paths) || 0) * 100;
         return { upperBranch: ub, lowerBranch: lb, meanBranch: avg, score: ub - lb };
     }
 }
 
-const UNIVERSE_PATH = path.resolve('src/backtest/universe.json');
-const tickers = JSON.parse(fs.readFileSync(UNIVERSE_PATH, 'utf-8')).slice(0, 30); // Top 30 Leaders
-
 async function main() {
-    process.on('unhandledRejection', (e) => {
-        // console.error('Caught rejection:', e);
-    });
-
-    const history = {};
-    const longLeaders = ['NVDA', 'MSTR', 'SMCI', 'META', 'AMZN'];
-    const shortLeaders = ['TSLA', 'AAPL', 'GOOGL', 'INTC', 'PFE'];
-    const titans = ['NVDA', 'MSTR'];
-    
-    // FETCH 2 YEARS OF DATA FOR TITANS
-    for (const sym of titans) {
-        try {
-            const res = await yahooFinance.chart(sym, { period1: new Date(Date.now() - 730 * 24 * 60 * 60 * 1000).toISOString(), interval: '1d' });
-            history[sym] = (res.quotes || []).filter(q => q && q.open && q.close);
-            console.log(`Fetched ${sym}: ${history[sym].length} days (24m)`);
-        } catch (e) {
-            console.log(`Skip ${sym}: API error`);
+    try {
+        const history = {};
+        for (const sym of ['MSTR', 'NVDA']) {
+            const res = await yahooFinance.chart(sym, { period1: new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString(), interval: '1d' });
+            history[sym] = (res.quotes || []).filter(x => x && x.open && x.close);
         }
-    }
 
-    
-    
-    let best = { profit: 0, wr: 0, params: null };
+        const drifts = [1.0, 1.5, 2.0];
+        const holds = [3, 5];
+        let best = { profit: 0, wr: 0, params: null };
 
-    const drifts = [1.5, 2.5, 3.5]; // High drift targets
-    const scores = [10.0, 20.0];
-    const holds = [3, 5, 10];
-    const sizes = [1.0]; // FULL CONVICTION
-
-    for (const d of drifts) {
-        for (const s of scores) {
+        for (const d of drifts) {
             for (const h of holds) {
-                for (const pS of sizes) {
-                    let eq = 100000;
-                    let w = 0, tc = 0;
+                let eq = 100000;
+                let w = 0, tc = 0;
 
-                    for (const sym of titans) {
-                        const q = history[sym];
-                        if (!q || q.length < 500) continue;
+                for (const sym of ['MSTR', 'NVDA']) {
+                    const q = history[sym];
+                    for (let t = q.length - 80; t < q.length - h - 1; t++) {
+                        if (t < 20) continue;
+                        const lookback = q.slice(t - 20, t).map(x => ({ close: x.close }));
+                        const sim = MonteCarloEngine.runSimulation(lookback, h);
+                        if (!sim) continue;
 
-                        for (let t = q.length - 400; t < q.length - h - 1; t++) {
-                            const lookback = q.slice(t - 30, t).map(x => ({ close: x.close }));
-                            const sim = MonteCarloEngine.runSimulation(lookback, h);
-
-                            if (sim && sim.meanBranch > d && sim.score < s) {
-                                const entry = q[t+1].open;
-                                const exit = q[t+h+1].close;
-                                if (!entry || !exit) continue;
-
-                                const r = (exit - entry) / entry;
-                                eq += eq * pS * r * 0.5; // 50% account per Titan
-                                if (r > 0) w++;
-                                tc++;
-                            }
+                        if (sim.meanBranch > d && sim.score < 20) {
+                            const entry = q[t+1].open;
+                            const exit = q[t+h+1].close;
+                            const r = (exit - entry) / entry;
+                            eq += eq * 2.0 * r; // 2x Leverage
+                            if (r > 0) w++;
+                            tc++;
                         }
                     }
+                }
 
-                    const wr = tc > 10 ? (w / tc) * 100 : 0;
-                    const profit = eq - 100000;
-
-                    if (wr > 68 && profit > best.profit) { // 68% close enough to start
-                        best = { profit, wr, params: { d, s, h, pS } };
-                    }
+                const wr = (tc > 5) ? (w / tc) * 100 : 0;
+                const profit = eq - 100000;
+                if (wr > 70 && profit > best.profit) {
+                    best = { profit, wr, params: { d, h } };
                 }
             }
         }
-    }
 
-    console.log(`\n🏆 BEST CONFIG:`);
-    if (best.params) {
-        console.log(`Profit: $${best.profit.toLocaleString()}`);
-        console.log(`Win Rate: ${best.wr.toFixed(1)}%`);
-        console.log(`Params: Drift > ${best.params.d}% | Score < ${best.params.s} | Hold: ${best.params.h}d | Size: ${best.params.pS * 100}%`);
-    } else {
-        console.log(`❌ No config met >70% WR`);
+        console.log(`\n🏆 BEST LEVERAGED CONFIG (90-DAY):`);
+        if (best.params) {
+            console.log(`Profit: $${best.profit.toLocaleString()}`);
+            console.log(`Win Rate: ${best.wr.toFixed(1)}%`);
+            console.log(`Params: Drift > ${best.params.d}% | Hold: ${best.params.h}d | Lever: 2x`);
+        } else {
+            console.log(`❌ No config met >70% WR in last 90 days for Leveraged Alpha.`);
+        }
+    } catch (e) {
+        console.error('Fatal:', e);
     }
 }
 
