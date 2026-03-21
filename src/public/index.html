@@ -160,28 +160,43 @@
             </section>
         </div>
 
-        <!-- LIGHTNING WATCHLIST -->
-        <section class="panel" style="margin-bottom:2rem;">
-            <h2>Lightning Branch Watchlist <span class="badge" id="watch-count">0</span></h2>
-            <div id="watchlist-container">
+        <!-- LIGHTNING ALPHA WATCHLIST -->
+        <section class="panel" style="margin-bottom:2rem; border-left: 4px solid var(--accent);">
+            <h2>🌌 Lightning Alpha Feed <span class="badge" id="alpha-count">0</span></h2>
+            <div id="alpha-container">
                 <table style="margin-top:0;">
                     <thead>
                         <tr>
                             <th>Ticker</th>
                             <th>Bias</th>
                             <th>Conviction</th>
-                            <th>Reasoning</th>
+                            <th>High-Precision Reasoning</th>
                             <th>Discovery Time</th>
                         </tr>
                     </thead>
-                    <tbody id="watch-body">
-                    </tbody>
-                    <tbody id="watch-body-expanded" style="display:none;">
+                    <tbody id="alpha-body">
                     </tbody>
                 </table>
-                <div id="watch-toggle" onclick="toggleWatchlist()" style="text-align:center; padding:1rem; border-top:1px solid var(--border); cursor:pointer; font-size:0.8rem; color:var(--accent); display:none;">
-                    Show More Candidates...
-                </div>
+            </div>
+        </section>
+
+        <!-- MARKET HOURS ORB WATCHLIST -->
+        <section class="panel" style="margin-bottom:2rem; border-left: 4px solid var(--secondary);">
+            <h2>🔥 Mega-Cap ORB Watchlist <span class="badge" id="orb-count">0</span></h2>
+            <div id="orb-container">
+                <table style="margin-top:0;">
+                    <thead>
+                        <tr>
+                            <th>Ticker</th>
+                            <th>Bias</th>
+                            <th>Score</th>
+                            <th>Pattern Logic</th>
+                            <th>Last Sync</th>
+                        </tr>
+                    </thead>
+                    <tbody id="orb-body">
+                    </tbody>
+                </table>
             </div>
         </section>
 
@@ -252,41 +267,40 @@
             } catch (e) { console.error('Stats API Error:', e); }
         }
 
-        let watchlistExpanded = false;
-        function toggleWatchlist() {
-            watchlistExpanded = !watchlistExpanded;
-            document.getElementById('watch-body-expanded').style.display = watchlistExpanded ? 'table-row-group' : 'none';
-            document.getElementById('watch-toggle').innerText = watchlistExpanded ? 'Show Less...' : 'Show More Candidates...';
-        }
-
         async function refreshWatchlist() {
             try {
                 const res = await fetch('/api/watchlist');
                 const list = await res.json();
                 
-                // Sort by score
-                list.sort((a,b) => b.score - a.score);
+                const alphaList = list.filter(i => i.type === 'ALPHA').sort((a,b) => b.score - a.score);
+                const orbList = list.filter(i => i.type === 'ORB').sort((a,b) => b.score - a.score);
                 
-                document.getElementById('watch-count').innerText = list.length;
+                document.getElementById('alpha-count').innerText = alphaList.length;
+                document.getElementById('orb-count').innerText = orbList.length;
                 
-                if (list.length > 0) {
-                    const top5 = list.slice(0, 5);
-                    const rest = list.slice(5);
-                    
-                    const renderItem = item => `
-                        <tr>
-                            <td class="symbol">${item.symbol}</td>
-                            <td><span class="side-tag ${item.side.toLowerCase()}">${item.side}</span></td>
-                            <td style="color:var(--accent); font-family:'Orbitron';">${item.score}/6</td>
-                            <td style="font-size:0.8rem; color:rgba(255,255,255,0.6);">${item.reason || '-'}</td>
-                            <td style="font-size:0.75rem; color:rgba(255,255,255,0.4);">${new Date(item.discoveryTime).toLocaleTimeString()}</td>
-                        </tr>
-                    `;
-                    
-                    document.getElementById('watch-body').innerHTML = top5.map(renderItem).join('');
-                    document.getElementById('watch-body-expanded').innerHTML = rest.map(renderItem).join('');
-                    document.getElementById('watch-toggle').style.display = rest.length > 0 ? 'block' : 'none';
-                }
+                const renderAlpha = item => `
+                    <tr>
+                        <td class="symbol">${item.symbol}</td>
+                        <td><span class="side-tag ${item.side.toLowerCase()}">${item.side}</span></td>
+                        <td style="color:var(--accent); font-family:'Orbitron';">${item.score}/6</td>
+                        <td style="font-size:0.8rem; color:rgba(255,255,255,0.7);">${item.reason || '-'}</td>
+                        <td style="font-size:0.75rem; color:rgba(255,255,255,0.4);">${new Date(item.discoveryTime).toLocaleTimeString()}</td>
+                    </tr>
+                `;
+
+                const renderOrb = item => `
+                    <tr>
+                        <td class="symbol">${item.symbol}</td>
+                        <td><span class="side-tag ${item.side.toLowerCase()}">${item.side}</span></td>
+                        <td style="color:var(--secondary); font-family:'Orbitron';">${item.score}/6</td>
+                        <td style="font-size:0.8rem; color:rgba(255,255,255,0.7);">${item.reason || '-'}</td>
+                        <td style="font-size:0.75rem; color:rgba(255,255,255,0.4);">${new Date(item.discoveryTime).toLocaleTimeString()}</td>
+                    </tr>
+                `;
+                
+                document.getElementById('alpha-body').innerHTML = alphaList.length > 0 ? alphaList.map(renderAlpha).join('') : '<tr><td colspan="5" style="text-align:center; padding:2rem; opacity:0.3;">Scanning After-Hours Universe...</td></tr>';
+                document.getElementById('orb-body').innerHTML = orbList.length > 0 ? orbList.map(renderOrb).join('') : '<tr><td colspan="5" style="text-align:center; padding:2rem; opacity:0.3;">Market Closed. ORB Scanner hibernating.</td></tr>';
+                
             } catch (e) { console.error('Watchlist API Error:', e); }
         }
 

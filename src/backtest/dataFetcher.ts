@@ -1,8 +1,19 @@
-
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
+import yahooFinance from 'yahoo-finance2';
+
+import { getScreenerData } from '../tools/screener.js';
+import { getStockLookup } from '../tools/tradingview.js';
+
+// Global Rate Limiter Policy (Institutional Grade)
+let lastRequestTime = 0;
+let requestCount = 0;
+let globalDelayAddon = 0; // Cumulative penalty for 429s
+const BATCH_SIZE = 10; 
+const COOL_DOWN = 5000; // 5s Cool down every BATCH_SIZE
+const BASE_DELAY = 1000; // 1s between individual requests
 
 const CACHE_DIR = path.resolve('backtest_cache');
 if (!fs.existsSync(CACHE_DIR)) {
@@ -61,113 +72,121 @@ export async function fetchHistoricalData(symbol: string, start: string, end: st
     const cache = getFromCache(symbol, 'hist', `${start}_${end}`);
     if (cache) return cache;
 
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${Math.floor(new Date(start).getTime() / 1000)}&period2=${Math.floor(new Date(end).getTime() / 1000)}&interval=1d`;
-    
+    // --- PHASE 1: TRADING_VIEW (PULSE) ---
     try {
-        const resp = await axios.get(url, { httpsAgent });
-        const result = resp.data.chart.result[0];
-        const timestamps = result.timestamp;
-        const quote = result.indicators.quote[0];
-        
-        const data: OHLCV[] = timestamps.map((ts: number, i: number) => ({
-            date: new Date(ts * 1000).toISOString(),
-            open: quote.open[i],
-            high: quote.high[i],
-            low: quote.low[i],
-            close: quote.close[i],
-            volume: quote.volume[i],
-            adjClose: quote.close[i]
+        const tv = await getStockLookup(symbol);
+        if (tv && tv.close) {
+             // We still need Yahoo for the historical series, but we've verified the ticker exists and is active.
+        }
+    } catch (e) {}
+
+    // --- PHASE 2: YAHOO FINANCE (DEEP BRAIN) ---
+    try {
+        const result = await yahooFinance.historical(symbol, {
+            period1: start,
+            period2: end,
+            interval: '1d'
+        });
+
+        const data: OHLCV[] = (result as any[]).map((q: any) => ({
+            date: q.date.toISOString(),
+            open: q.open,
+            high: q.high,
+            low: q.low,
+            close: q.close,
+            volume: q.volume,
+            adjClose: q.adjClose || q.close
         })).filter((d: OHLCV) => d.open !== null);
 
         const finalData = { symbol, data };
         saveToCache(symbol, 'hist', `${start}_${end}`, finalData);
         return finalData;
     } catch (e) {
+        console.error(`❌ Yahoo Hist Error [${symbol}]:`, e);
         return { symbol, data: [] };
     }
 }
 
-const USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-];
+// Note: yahoo-finance2 handles session/crumb management internally
 
-let sessionCookie: string | null = null;
-let lastSessionFetch = 0;
-
-async function refreshYahooSession() {
-    if (sessionCookie && (Date.now() - lastSessionFetch < 3600000)) return; // 1hr cache
-    try {
-        const resp = await axios.get('https://finance.yahoo.com', {
-            headers: { 'User-Agent': USER_AGENTS[0] },
-            httpsAgent
-        });
-        const cookies = resp.headers['set-cookie'];
-        if (cookies) {
-            sessionCookie = cookies.map(c => c.split(';')[0]).join('; ');
-            lastSessionFetch = Date.now();
-            console.log('✅ Yahoo Session Refreshed (Cookie obtained)');
-        }
-    } catch (e) {
-        console.warn('⚠️ Failed to refresh Yahoo session, proceeding without cookies');
-    }
-}
-
-export async function fetchIntradayData(symbol: string, range: string = '1mo', interval: string = '5m', retries: number = 3): Promise<HistoricalData> {
-    const cache = getFromCache(symbol, 'intraday', `${range}_${interval}`, 60); // 60s TTL for live
+export async function fetchIntradayData(symbol: string, range: string = '1mo', interval: string = '5m', retries: number = 2): Promise<HistoricalData> {
+    const cacheKey = `${range}_${interval}`;
+    const cache = getFromCache(symbol, 'intraday', cacheKey, 60); 
     if (cache) return cache;
 
-    await refreshYahooSession();
+    // --- PHASE 1: TRADING_VIEW REAL-TIME (PULSE) ---
+    try {
+        const tv = await getStockLookup(symbol);
+        if (tv && tv.close) {
+             // TradingView is excellent for current state, but we need Yahoo for the historical array for GBM.
+        }
+    } catch (e) {}
+
+    // --- PHASE 2: YAHOO FINANCE (DEEP BRAIN) ---
+    // Hardening Strategy: Cluster Bursting + Cool Down
+    requestCount++;
+    const now = Date.now();
+    let waitTime = 0;
+
+    if (requestCount % BATCH_SIZE === 0) {
+        waitTime = COOL_DOWN;
+        console.error(`🛡️ BATCH LIMIT REACHED. Cooling down ${COOL_DOWN}ms...`);
+    } else {
+        waitTime = Math.max(0, BASE_DELAY - (now - lastRequestTime));
+    }
+
+    // Add Global Penalty (Adaptive Throttling)
+    waitTime += globalDelayAddon;
+
+    if (waitTime > 0) {
+        await new Promise(r => setTimeout(r, waitTime + Math.random() * 2000));
+    }
 
     let attempt = 0;
     while (attempt <= retries) {
-        // Institutional Jitter (2s base + random)
-        await new Promise(r => setTimeout(r, 2000 + Math.random() * 1000)); 
-
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}`;
-        const ua = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
-
         try {
-            const resp = await axios.get(url, { 
-                httpsAgent,
-                headers: { 
-                    'User-Agent': ua,
-                    'Cookie': sessionCookie || '',
-                    'Referer': 'https://finance.yahoo.com/quote/' + symbol,
-                    'Origin': 'https://finance.yahoo.com'
-                }
-            });
-            
-            const result = resp.data.chart.result[0];
-            const timestamps = result.timestamp;
-            const quote = result.indicators.quote[0];
-            
-            const data: OHLCV[] = timestamps.map((ts: number, i: number) => ({
-                date: new Date(ts * 1000).toISOString(),
-                open: quote.open[i],
-                high: quote.high[i],
-                low: quote.low[i],
-                close: quote.close[i],
-                volume: quote.volume[i],
-                adjClose: quote.close[i]
-            })).filter((d: OHLCV) => d.open !== null);
+            const result = (await yahooFinance.chart(symbol, {
+                period1: range, 
+                interval: interval as any,
+                includeTimestamp: true
+            })) as any;
 
-            const finalData = { symbol, data };
-            saveToCache(symbol, 'intraday', `${range}_${interval}`, finalData);
+            lastRequestTime = Date.now();
+
+            if (!result || !result.quotes) throw new Error('No quotes');
+            
+            if (globalDelayAddon > 0) globalDelayAddon = Math.max(0, globalDelayAddon - 500);
+
+            const data: OHLCV[] = result.quotes.map((q: any) => ({
+                date: q.date ? q.date.toISOString() : new Date().toISOString(),
+                open: q.open,
+                high: q.high,
+                low: q.low,
+                close: q.close,
+                volume: q.volume,
+                adjClose: q.adjClose || q.close
+            })).filter((d: any) => d.open !== null);
+
+            const finalData = { symbol, data: data };
+            saveToCache(symbol, 'intraday', cacheKey, finalData);
             return finalData;
+
         } catch (e: any) {
-            if (e.response?.status === 429 || e.response?.status === 403) {
-                attempt++;
-                const backoff = Math.pow(2, attempt) * 3000;
-                console.warn(`⚠️ Yahoo Blocked [${symbol}] Status: ${e.response?.status}. Backing off ${backoff}ms... (Attempt ${attempt}/${retries})`);
-                sessionCookie = null; // Clear cookie on failure to trigger refresh
+            attempt++;
+            const status = e.response?.status || 0;
+            const message = e.message || '';
+            const is429 = status === 429 || status === 403 || message.toLowerCase().includes('429');
+
+            if (is429) {
+                globalDelayAddon += 10000;
+                const backoff = Math.pow(2, attempt) * 15000;
+                console.warn(`🛑 YAHOO THROTTLED [${symbol}]. Global Penalty: ${globalDelayAddon}ms. Backing off ${backoff}ms...`);
                 await new Promise(r => setTimeout(r, backoff));
-                await refreshYahooSession();
-                continue; 
+                if (attempt <= retries) continue;
             }
-            console.error(`❌ Yahoo API Error [${symbol}]: ${e instanceof Error ? e.message : String(e)}`);
-            break; 
+            
+            console.error(`❌ Yahoo API Error [${symbol}]: ${message}`);
+            if (attempt > retries) break;
         }
     }
     return { symbol, data: [] };

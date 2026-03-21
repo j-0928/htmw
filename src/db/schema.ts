@@ -43,5 +43,6 @@ export const watchlist = pgTable('watchlist', {
     side: text('side').notNull(),
     score: integer('score').notNull(),
     reason: text('reason'),
+    type: text('type').default('ALPHA'), // 'ALPHA' or 'ORB'
     discoveryTime: timestamp('discovery_time').defaultNow()
 });

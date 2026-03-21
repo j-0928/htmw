@@ -2,6 +2,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fetchIntradayData } from './backtest/dataFetcher.js';
+import { getScreenerData } from './tools/screener.js';
 import { fileURLToPath } from 'url';
 import type { ApiClient } from './api.js';
 import { executeTrade } from './tools/executeTrade.js';
@@ -102,15 +103,40 @@ export async function runTradeBot(api: ApiClient, afterHours: boolean = false): 
     // 3. Scan for New Signals (Use Dynamic Watchlist)
     if (dbOpenTrades.length < MAX_OPEN_TRADES) {
         const slotsAvailable = MAX_OPEN_TRADES - dbOpenTrades.length;
-        const dbWatchlist = await db.select().from(watchlistTable).orderBy(desc(watchlistTable.score)).limit(60);
+        const dbWatchlist = await db.select().from(watchlistTable)
+            .orderBy(desc(watchlistTable.score)).limit(60);
         
-        log(`🔎 Scanning ${dbWatchlist.length || VOLATILE_TICKERS.length} Tickers [Slots: ${slotsAvailable}] for Conviction-Based entries...`);
-        const livePortValue = (portfolioPositions.length > 0 || cashAvailable > 0) ? (portfolioPositions.reduce((s,p) => s + (p.marketValue || 0), 0) + cashAvailable) : 100000;
+        log(`🔎 Scanning ${dbWatchlist.length} Tickers [Slots: ${slotsAvailable}] for Conviction-Based entries...`);
         
+        // Dynamic Optimization: If Market is Open, refresh ORB candidates in DB too
+        if (!afterHours && dbWatchlist.filter(w => w.type === 'ORB').length < 5) {
+            log('⚡ Refreshing live ORB Watchlist... ');
+            const orbTickers = ['NVDA', 'TSLA', 'AMD', 'META', 'AMZN', 'NFLX', 'COIN', 'MSTR', 'SMCI', 'ARM'];
+            for (const sym of orbTickers) {
+                try {
+                    const setup = await checkSetup(sym, () => {});
+                    if (setup) {
+                        await db.insert(watchlistTable).values({
+                            symbol: sym,
+                            side: setup,
+                            score: 5,
+                            type: 'ORB',
+                            reason: `Live Market ORB Breakout (${setup})`
+                        }).onConflictDoUpdate({
+                            target: watchlistTable.symbol,
+                            set: { score: 5, type: 'ORB', reason: `Live Market ORB Breakout (${setup})` }
+                        });
+                    }
+                } catch (e) {}
+            }
+        }
+
         const candidates = dbWatchlist.length > 0 
             ? dbWatchlist.map(w => ({ symbol: w.symbol, score: w.score }))
-            : VOLATILE_TICKERS.map(s => ({ symbol: s, score: 100 })); // Default 100 for volatile list
+            : VOLATILE_TICKERS.map(s => ({ symbol: s, score: 100 })); 
 
+        const livePortValue = (portfolioPositions.length > 0 || cashAvailable > 0) ? (portfolioPositions.reduce((s,p) => s + (p.marketValue || 0), 0) + cashAvailable) : 100000;
+        
         let tradesExecutedThisCycle = 0;
         for (const entry of candidates) {
             const { symbol, score } = entry;
@@ -140,9 +166,68 @@ export async function runTradeBot(api: ApiClient, afterHours: boolean = false): 
 async function runAfterHoursAnalysis(api: ApiClient, log: (msg: string) => void): Promise<string> {
     log('🌌 Starting Lightning Branch After-Hours Quant Analysis...');
     
-    // 1. Get Universe (Top 200 high-alpha tickers)
-    const universe = VOLATILE_TICKERS.slice(0, 100); // Placeholder for 1000
-    log(`🔎 Analyzing ${universe.length} high-potential tickers...`);
+    // 0. Reasoning Migration Check
+    try {
+        const legacy = await db.select().from(watchlistTable)
+            .where(eq(watchlistTable.reason, 'After-Hours Alpha branches confirmed'));
+        if (legacy.length > 0) {
+            log(`🛠️ Discovered ${legacy.length} legacy candidates. Upgrading institutional reasoning...`);
+            for (const row of legacy) {
+                try {
+                    const raw = await fetchIntradayData(row.symbol, '5d', '15m');
+                    if (!raw.data || raw.data.length < 50) continue;
+                    const closes = raw.data.map(d => d.close);
+                    const meanPrice = closes.slice(-20).reduce((p, c) => p + c) / 20;
+                    const vol = Math.sqrt(closes.slice(-20).reduce((s, x) => s + Math.pow(x - meanPrice, 2), 0) / 20);
+                    const trend = closes[closes.length - 1] - closes[closes.length - 20];
+                    const relativeVol = vol / meanPrice;
+                    const move = (relativeVol * 250).toFixed(1);
+                    const movePct = parseFloat(move) / 100;
+                    const targetPrice = (closes[closes.length-1] * (1 + (trend > 0 ? movePct : -movePct))).toFixed(2);
+                    const confidence = row.score >= 5 ? 'HIGH' : row.score >= 3 ? 'MED' : 'SPEC';
+                    const tag = trend > 0 ? 'High-Beta Momentum' : 'Mean Reversion Alpha';
+                    
+                    const newReason = `[${confidence}] Alpha Discovery: ${row.symbol} | Upper Branch: ${trend > 0 ? '+' : '-'}${move}% ($${targetPrice}) | Sigma-2 Volatility Profile | Strategy: ${tag}`;
+                    await db.update(watchlistTable).set({ reason: newReason }).where(eq(watchlistTable.id, row.id));
+                    log(`✅ Upgraded ${row.symbol}`);
+                } catch (e) { log(`❌ Failed backfill for ${row.symbol}`); }
+            }
+        }
+    } catch (e) { log('⚠️ Migration check failed'); }
+
+    // 1. Get Universe (Radar Scan)
+    log(`📡 TradingView Radar: Scanning america market for high-alpha candidates...`);
+    let radarUniverse: string[] = [];
+    try {
+        const radar = await getScreenerData({
+            limit: 100,
+            sort_by: 'change',
+            sort_order: 'desc',
+            filters: [
+                { left: 'change', operation: 'greater', right: 2.0 }, // 2%+ Move
+                { left: 'volume', operation: 'greater', right: 500000 } // 500k+ Vol
+            ]
+        });
+        radarUniverse = radar.data.map((r: any) => r.ticker.split(':')[1] || r.ticker);
+        log(`🎯 Radar detected ${radarUniverse.length} "Action" tickers.`);
+    } catch (e) { log('⚠️ Radar Scan failed, using static universe...'); }
+
+    // Merge with Quant Bridge & Volatile Tickers
+    let universe = [...new Set([...radarUniverse, ...VOLATILE_TICKERS])];
+    
+    // Quant Bridge: Prioritize tickers from Deep Monte Carlo research if available
+    try {
+        const quantRanksPath = path.resolve('src/backtest/quant_ranks.json');
+        if (fs.existsSync(quantRanksPath)) {
+            const deepRanks = JSON.parse(fs.readFileSync(quantRanksPath, 'utf-8'));
+            log(`🧬 Quant Bridge: Injecting ${deepRanks.length} deep-research candidates into scan priority.`);
+            universe = [...new Set([...deepRanks, ...universe])];
+        }
+    } catch (e) { log('⚠️ Quant Bridge: Rank import skipped'); }
+
+    // Institutional Hardening: Randomize scan order to bypass sequence correlation
+    universe = universe.sort(() => Math.random() - 0.5).slice(0, 100);
+    log(`🔎 Analyzing ${universe.length} targeted high-potential tickers...`);
     
     const candidates: { symbol: string, side: string, score: number, reason: string }[] = [];
     
@@ -164,16 +249,22 @@ async function runAfterHoursAnalysis(api: ApiClient, log: (msg: string) => void)
 
             if (relativeVol > 0.005) { // 0.5% Relative Volatility Threshold
                 const move = (relativeVol * 250).toFixed(1); // Projected Move %
+                const movePct = parseFloat(move) / 100;
+                const lastPrice = closes[closes.length - 1];
+                const targetPrice = (lastPrice * (1 + (trend > 0 ? movePct : -movePct))).toFixed(2);
+                
+                const score = Math.min(6, Math.floor(relativeVol * 400));
+                const confidence = score >= 5 ? 'HIGH' : score >= 3 ? 'MED' : 'SPEC';
                 const duration = relativeVol > 0.015 ? '1-3 Day Runner' : '1-Week Accumulation';
                 const tag = trend > 0 ? 'High-Beta Momentum' : 'Mean Reversion Alpha';
                 
                 candidates.push({
                     symbol,
                     side: trend > 0 ? 'LONG' : 'SHORT',
-                    score: Math.min(6, Math.floor(relativeVol * 400)), // Scale score to 0-6
-                    reason: `${trend > 0 ? '+' : '-'}${move}% projected voltality branch. ${duration}. ${tag}.`
+                    score: score,
+                    reason: `[${confidence}] Alpha Discovery: ${symbol} | Upper Branch: ${trend > 0 ? '+' : '-'}${move}% ($${targetPrice}) | Sigma-2 Volatility Profile | Strategy: ${tag}`
                 });
-                log(`🎯 Match: ${symbol} (Vol: ${(relativeVol * 100).toFixed(2)}% | Move: ${move}% | ${duration})`);
+                log(`🎯 Match: ${symbol} (Vol: ${(relativeVol * 100).toFixed(2)}% | Score: ${score} | Conf: ${confidence})`);
             }
         } catch (e) {
             log(`❌ Skip ${symbol}: Processing error`);
@@ -184,9 +275,9 @@ async function runAfterHoursAnalysis(api: ApiClient, log: (msg: string) => void)
     log(`💾 Saving Top ${candidates.length} candidates to Dynamic Watchlist...`);
     await db.delete(watchlistTable);
     for (const cand of candidates.slice(0, 60)) {
-        await db.insert(watchlistTable).values(cand).onConflictDoUpdate({
+        await db.insert(watchlistTable).values({ ...cand, type: 'ALPHA' }).onConflictDoUpdate({
             target: watchlistTable.symbol,
-            set: { score: cand.score, reason: cand.reason }
+            set: { score: cand.score, reason: cand.reason, type: 'ALPHA' }
         });
     }
     
