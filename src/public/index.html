@@ -153,7 +153,7 @@
             </section>
 
             <section class="panel">
-                <h2>Lightning Alpha Feed</h2>
+                <h2>Lightning Alpha Feed <span class="badge">Live Execution</span></h2>
                 <div id="signals-list">
                     <div style="text-align:center; color:rgba(255,255,255,0.2); padding:2rem;">Waiting for signals...</div>
                 </div>
@@ -175,9 +175,13 @@
                         </tr>
                     </thead>
                     <tbody id="watch-body">
-                        <tr><td colspan="5" style="text-align:center; color:rgba(255,255,255,0.2); padding:3rem;">Scanner active. Awaiting Alpha Discovery...</td></tr>
+                    </tbody>
+                    <tbody id="watch-body-expanded" style="display:none;">
                     </tbody>
                 </table>
+                <div id="watch-toggle" onclick="toggleWatchlist()" style="text-align:center; padding:1rem; border-top:1px solid var(--border); cursor:pointer; font-size:0.8rem; color:var(--accent); display:none;">
+                    Show More Candidates...
+                </div>
             </div>
         </section>
 
@@ -248,14 +252,28 @@
             } catch (e) { console.error('Stats API Error:', e); }
         }
 
+        let watchlistExpanded = false;
+        function toggleWatchlist() {
+            watchlistExpanded = !watchlistExpanded;
+            document.getElementById('watch-body-expanded').style.display = watchlistExpanded ? 'table-row-group' : 'none';
+            document.getElementById('watch-toggle').innerText = watchlistExpanded ? 'Show Less...' : 'Show More Candidates...';
+        }
+
         async function refreshWatchlist() {
             try {
                 const res = await fetch('/api/watchlist');
                 const list = await res.json();
+                
+                // Sort by score
+                list.sort((a,b) => b.score - a.score);
+                
                 document.getElementById('watch-count').innerText = list.length;
+                
                 if (list.length > 0) {
-                    const body = document.getElementById('watch-body');
-                    body.innerHTML = list.map(item => `
+                    const top5 = list.slice(0, 5);
+                    const rest = list.slice(5);
+                    
+                    const renderItem = item => `
                         <tr>
                             <td class="symbol">${item.symbol}</td>
                             <td><span class="side-tag ${item.side.toLowerCase()}">${item.side}</span></td>
@@ -263,7 +281,11 @@
                             <td style="font-size:0.8rem; color:rgba(255,255,255,0.6);">${item.reason || '-'}</td>
                             <td style="font-size:0.75rem; color:rgba(255,255,255,0.4);">${new Date(item.discoveryTime).toLocaleTimeString()}</td>
                         </tr>
-                    `).join('');
+                    `;
+                    
+                    document.getElementById('watch-body').innerHTML = top5.map(renderItem).join('');
+                    document.getElementById('watch-body-expanded').innerHTML = rest.map(renderItem).join('');
+                    document.getElementById('watch-toggle').style.display = rest.length > 0 ? 'block' : 'none';
                 }
             } catch (e) { console.error('Watchlist API Error:', e); }
         }
