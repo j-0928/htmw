@@ -133,14 +133,14 @@ export async function runTradeBot(api: ApiClient, afterHours: boolean = false): 
         }
 
         const candidates = dbWatchlist.length > 0 
-            ? dbWatchlist.map(w => ({ symbol: w.symbol, score: w.score }))
-            : VOLATILE_TICKERS.map(s => ({ symbol: s, score: 100 })); 
+            ? dbWatchlist.map(w => ({ symbol: w.symbol, score: w.score, type: w.type, side: w.side || 'LONG' }))
+            : VOLATILE_TICKERS.map(s => ({ symbol: s, score: 100, type: 'ORB', side: 'LONG' })); 
 
         const livePortValue = (portfolioPositions.length > 0 || cashAvailable > 0) ? (portfolioPositions.reduce((s,p) => s + (p.marketValue || 0), 0) + cashAvailable) : 100000;
         
         let tradesExecutedThisCycle = 0;
         for (const entry of candidates) {
-            const { symbol, score } = entry;
+            const { symbol, score, type, side } = entry;
             if (heldSymbols.has(symbol.toUpperCase())) continue;
             
             // Conviction-Based Sizing: Size = (NAV * 0.25) * (Score / 100)
@@ -149,7 +149,14 @@ export async function runTradeBot(api: ApiClient, afterHours: boolean = false): 
             
             log(`📈 Conviction Scaling [${symbol}]: Investing $${amountPerTrade.toFixed(2)} (Score: ${score} | Cap: $${symbolCap.toFixed(2)})`);
 
-            const signal = await checkSetup(symbol, log);
+            let signal: 'LONG' | 'SHORT' | null = null;
+            if (type === 'ALPHA') {
+                log(`⚡ [ALPHA BYPASS] ${symbol} identified as Super-Alpha. Executing direct branch target.`);
+                signal = side as 'LONG' | 'SHORT';
+            } else {
+                signal = await checkSetup(symbol, log);
+            }
+
             if (signal) {
                 const success = await triggerTrade(api, symbol, signal, amountPerTrade, log);
                 if (success) {
